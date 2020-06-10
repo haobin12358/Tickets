@@ -215,7 +215,7 @@ class Admin(Base):
     ADtelephone = Column(String(13), comment='管理员联系电话')
     ADpassword = Column(Text, nullable=False, comment='密码')
     ADheader = Column(Text, comment='头像', url=True)
-    ADlevel = Column(Integer, default=2, comment='管理员等级，{1: 超级管理员, 2: 普通管理员 3: 供应商 }')
+    ADlevel = Column(Integer, default=2, comment='管理员等级，{1: 超级管理员, 2: 普通管理员}')
     ADstatus = Column(Integer, default=0, comment='账号状态，{0:正常, 1: 被冻结, 2: 已删除}')
 
 
@@ -230,3 +230,29 @@ class AdminActions(Base):
     AAmodel = Column(String(255), comment='操作的数据表')
     AAdetail = Column(LONGTEXT, comment='请求的data')
     AAkey = Column(String(255), comment='操作数据表的主键的值')
+
+
+class Supplizer(Base):
+    """供应商"""
+    __tablename__ = 'Supplizer'
+    SUid = Column(String(64), primary_key=True)
+    SUloginPhone = Column(String(11), nullable=False, index=True, unique=True, comment='登录手机号')
+    SUlinkPhone = Column(String(11), default=SUloginPhone, comment='供应商联系电话')
+    SUname = Column(String(32), default=SUlinkPhone, comment='供应商名字')
+    SUlinkman = Column(String(16), nullable=False, comment='供应商联系人')
+    SUaddress = Column(String(255), nullable=False, comment='供应商地址')
+    SUstatus = Column(Integer, default=0, comment='状态: 10 待审核 0 正常 -10 禁用')
+    SUdeposit = Column(DECIMAL(precision=28, scale=2), comment='供应商押金')
+    SUbanksn = Column(String(32), comment='卡号')
+    SUbankname = Column(String(64), comment='银行')
+    SUpassword = Column(String(255), comment='供应商密码密文')
+    SUheader = Column(String(255), comment='头像', url=True)
+    SUcontract = Column(Text, url_list=True, comment='合同列表')
+    SUbusinessLicense = Column(Text, url=True, comment='营业执照')
+    SUregisteredFund = Column(String(255), comment='注册资金')
+    SUmainCategory = Column(Text, comment='主营类目')
+    SUregisteredTime = Column(DateTime, comment='注册时间')
+    SUlegalPerson = Column(Text, comment='法人姓名')
+    SUemail = Column(String(256), comment='供应商邮箱')
+    SUlegalPersonIDcardFront = Column(Text, url=True, comment='法人身份证正面')
+    SUlegalPersonIDcardBack = Column(Text, url=True, comment='法人身份证正面')

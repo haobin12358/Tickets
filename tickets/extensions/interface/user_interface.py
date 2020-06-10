@@ -17,6 +17,10 @@ def is_admin():
     return hasattr(request, 'user') and request.user.model == 'Admin'
 
 
+def is_supplizer():
+    return hasattr(request, 'user') and request.user.model == 'Supplizer'
+
+
 def token_required(func):
     def inner(self, *args, **kwargs):
         if not is_anonymous():

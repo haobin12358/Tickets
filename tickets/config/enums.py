@@ -14,16 +14,6 @@ class UserStatus(Enum):
     all = None
 
 
-class ProductStatus(Enum):
-    """商品状态"""
-    usual = (0, '已上架')
-    auditing = (10, '审核中')
-    reject = 30, '审核失败'
-    sell_out = 40, '售罄'
-    off_shelves = (60, '已下架')
-    all = None
-
-
 class ProductFrom(Enum):
     """商品来源"""
     platform = (0, '平台')
@@ -832,10 +822,10 @@ class CategoryType(Enum):
     orange = 2, '折扣券'
 
 
-class TicketStatus(Enum):
-    """票务状态"""
+class ProductStatus(Enum):
+    """商品状态"""
     ready = 0, '未开始'
-    active = 1, '抢票中'
+    active = 1, '发放中'
     interrupt = 2, '中止'
     over = 3, '已结束'
 

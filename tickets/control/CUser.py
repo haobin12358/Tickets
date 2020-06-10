@@ -12,6 +12,7 @@ from tickets.extensions.error_response import ParamsError, TokenError, WXLoginEr
 from tickets.extensions.interface.user_interface import token_required
 from tickets.extensions.params_validates import parameter_required
 from tickets.extensions.register_ext import db, mp_miniprogram, qiniu_oss
+from tickets.extensions.request_handler import _get_user_agent
 from tickets.extensions.success_response import Success
 from tickets.extensions.token_handler import usid_to_token
 from tickets.extensions.weixin import WeixinLogin
@@ -125,7 +126,7 @@ class CUser(object):
                                                    "USid": usid,
                                                    "USTip": request.remote_addr
                                                    })
-            useragent = self.get_user_agent()
+            useragent = _get_user_agent()
             if useragent:
                 setattr(userloggintime, 'OSVersion', useragent[0])
                 setattr(userloggintime, 'PhoneModel', useragent[1])
@@ -318,34 +319,3 @@ class CUser(object):
         if not isinstance(kwargs, dict):
             return
         return '&'.join(map(lambda x: '{}={}'.format(x, kwargs.get(x)), kwargs.keys()))
-
-    @staticmethod
-    def get_user_agent():
-        user_agent = request.user_agent
-        ua = str(user_agent).split()
-        osversion = phonemodel = wechatversion = nettype = None
-        if not re.match(r'^(android|iphone)$', str(user_agent.platform)):
-            return
-        for index, item in enumerate(ua):
-            if 'Android' in item:
-                osversion = f'Android {ua[index + 1][:-1]}'
-                phonemodel = ua[index + 2]
-                temp_index = index + 3
-                while 'Build' not in ua[temp_index]:
-                    phonemodel = f'{phonemodel} {ua[temp_index]}'
-                    temp_index += 1
-            elif 'OS' in item:
-                if ua[index - 1] == 'iPhone':
-                    osversion = f'iOS {ua[index + 1]}'
-                    phonemodel = 'iPhone'
-            if 'MicroMessenger' in item:
-                try:
-                    wechatversion = item.split('/')[1]
-                    if '(' in wechatversion:
-                        wechatversion = wechatversion.split('(')[0]
-                except Exception as e:
-                    current_app.logger.error('MicroMessenger:{}, error is :{}'.format(item, e))
-                    wechatversion = item.split('/')[1][:3]
-            if 'NetType' in item:
-                nettype = re.match(r'^(.*)\/(.*)$', item).group(2)
-        return osversion, phonemodel, wechatversion, nettype, user_agent.string
