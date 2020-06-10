@@ -68,7 +68,7 @@ def _invitation_records():
     secret_user_id = request.args.to_dict().get('secret_usid')
     if not secret_user_id:
         return
-    from hospital.extensions.interface.user_interface import is_user
+    from tickets.extensions.interface.user_interface import is_user
     if not is_user():
         return
     current_app.logger.info('>>>>>>>>record invitation<<<<<<<<')
@@ -82,15 +82,15 @@ def _invitation_records():
     if inviter_id == usid:
         current_app.logger.info('inviter == invitee')
         return
-    from hospital.models.user import UserInvitation
-    from hospital.extensions.register_ext import db
+    from tickets.models.user import UserInvitation
+    from tickets.extensions.register_ext import db
     import uuid
     try:
         with db.auto_commit():
             uin = UserInvitation.create({
                 'UINid': str(uuid.uuid1()),
                 'USInviter': inviter_id,
-                'USInvitee': usid,
+                'USInvited': usid,
                 'UINapi': request.path
             })
             current_app.logger.info(f'{request.path} 创建邀请记录')
@@ -118,7 +118,7 @@ def request_first_handler(app):
         token = parameter.get('token')
         user = token_to_user_(token)
         if token and not user:
-            from hospital.extensions.error_response import TokenError
+            from tickets.extensions.error_response import TokenError
             raise TokenError('登录超时，请重新登录')
 
     @app.before_request

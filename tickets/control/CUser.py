@@ -7,7 +7,6 @@ import requests
 from flask import current_app, request
 from sqlalchemy import false
 from tickets.common.default_head import GithubAvatarGenerator
-from tickets.config.http_config import API_HOST
 from tickets.config.secret import MiniProgramAppId, MiniProgramAppSecret
 from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError
 from tickets.extensions.interface.user_interface import token_required
@@ -209,7 +208,7 @@ class CUser(object):
             head.write(data.content)
 
         # 头像上传到七牛云
-        if API_HOST == 'https://www.bigxingxing.com':
+        if current_app.config.get('IMG_TO_OSS'):
             try:
                 qiniu_oss.save(data=filename, filename=filedbname[1:])
             except Exception as e:
@@ -303,7 +302,7 @@ class CUser(object):
             filedbname = None
 
         # 二维码上传到七牛云
-        if API_HOST == 'https://www.bigxingxing.com':
+        if current_app.config.get('IMG_TO_OSS'):
             try:
                 qiniu_oss.save(data=filename, filename=filedbname[1:])
             except Exception as e:
