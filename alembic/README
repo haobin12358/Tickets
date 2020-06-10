@@ -1,0 +1,16 @@
+Generic single-database configuration.
+
+- 生成迁移文件
+
+```bash
+alembic revision --autogenerate -m 'add'
+```
+
+- 执行
+```bash
+alembic upgrade head
+```
+
+- 回滚
+```bash
+alembic downgrade 上个版本号 # 可在本次迁移文件头部中找到'Revises'
