@@ -9,14 +9,16 @@ from sqlalchemy import false
 from tickets.common.default_head import GithubAvatarGenerator
 from tickets.config.enums import MiniUserGrade
 from tickets.config.secret import MiniProgramAppId, MiniProgramAppSecret
+from tickets.control.BaseControl import BaseController
 from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError, NotFound
 from tickets.extensions.interface.user_interface import token_required
-from tickets.extensions.params_validates import parameter_required
+from tickets.extensions.params_validates import parameter_required, validate_arg
 from tickets.extensions.register_ext import db, mp_miniprogram, qiniu_oss
 from tickets.extensions.request_handler import _get_user_agent
 from tickets.extensions.success_response import Success
 from tickets.extensions.token_handler import usid_to_token
 from tickets.extensions.weixin import WeixinLogin
+from tickets.extensions.weixin.mp import WeixinMPError
 from tickets.models import User, SharingParameters, UserLoginTime, UserWallet, ProductVerifier, AddressProvince, \
     AddressArea, AddressCity
 
@@ -329,6 +331,38 @@ class CUser(object):
         return Success(data={
             'secret_usid': secret_usid,
         })
+
+    @token_required
+    def update_usinfo(self):
+        """更新个人资料"""
+        user = self._get_exist_user((User.USid == getattr(request, 'user').id,), '请重新登录')
+        data = parameter_required()
+        usheader = data.get('usheader')
+        usareaid, usbirthday = data.get('aaid'), data.get('usbirthday')
+        usbirthday = validate_arg(r'^\d{4}-\d{2}-\d{2}$', usbirthday, '请按正确的生日格式填写')
+        if usareaid:
+            db.session.query(AddressArea.AAid).filter(AddressArea.AAid == usareaid).first_('请选择正确的地区')
+        try:  # 检查昵称填写
+            check_content = data.get('usname')
+            check_res = mp_miniprogram.msg_sec_check(check_content)
+            current_app.logger.info('content_sec_check: {}'.format(check_res))
+        except WeixinMPError as e:
+            current_app.logger.info('check result: {}'.format(e))
+            raise ParamsError('您输入的昵称含有部分敏感词汇,请检查后重新填写')
+        # 图片校验
+        usheader_dir = usheader
+        filepath = os.path.join(current_app.config['BASEDIR'],
+                                str(usheader).split('.com')[-1].split('.cn')[-1][1:].split('_')[0])
+        BaseController().img_check(filepath, '您上传的头像')
+
+        with db.auto_commit():
+            user.update({'UScustomizeName': data.get('usname'),
+                         'UScustomizeBirthday': usbirthday,
+                         'USareaId': usareaid,
+                         'UScustomizeHeader': data.get('usheader'),
+                         })
+            db.session.add(user)
+        return Success('修改成功')
 
     @token_required
     def get_home(self):

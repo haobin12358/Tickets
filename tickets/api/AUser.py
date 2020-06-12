@@ -18,5 +18,6 @@ class AUser(Resource):
             'mp_login': self.cuser.mini_program_login,
             'bind_phone': self.cuser.bind_phone,
             'test_login': self.cuser.test_login,
+            'update_usinfo': self.cuser.update_usinfo,
         }
         return apis
