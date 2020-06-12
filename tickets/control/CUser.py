@@ -7,6 +7,7 @@ import requests
 from flask import current_app, request
 from sqlalchemy import false
 from tickets.common.default_head import GithubAvatarGenerator
+from tickets.config.enums import MiniUserGrade
 from tickets.config.secret import MiniProgramAppId, MiniProgramAppSecret
 from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError
 from tickets.extensions.interface.user_interface import token_required
@@ -16,7 +17,7 @@ from tickets.extensions.request_handler import _get_user_agent
 from tickets.extensions.success_response import Success
 from tickets.extensions.token_handler import usid_to_token
 from tickets.extensions.weixin import WeixinLogin
-from tickets.models import User, SharingParameters, UserLoginTime
+from tickets.models import User, SharingParameters, UserLoginTime, UserWallet, ProductVerifier
 
 
 class CUser(object):
@@ -308,3 +309,53 @@ class CUser(object):
         if not isinstance(kwargs, dict):
             return
         return '&'.join(map(lambda x: '{}={}'.format(x, kwargs.get(x)), kwargs.keys()))
+
+    @token_required
+    def get_home(self):
+        """获取个人主页信息"""
+        user = User.query.filter(User.USid == getattr(request, 'user').id, User.isdelete == false()).first()
+        if not user:
+            raise TokenError('请重新登录')
+        user.fill('usbirthday', str(user.USbirthday)[:10])
+        user.fill('usminilevel', MiniUserGrade(user.USminiLevel).zh_value)
+        self.__user_fill_uw_total(user)
+        user.fill('verified', bool(user.USidentification))  # 是否信用认证
+        if not user.USwxacode:
+            with db.auto_commit():
+                user.USwxacode = self.wxacode_unlimit(user.USid)
+        user.fill('ticketverifier', (False if not user.UStelphone else
+                                     True if ProductVerifier.query.filter(ProductVerifier.isdelete == false(),
+                                                                          ProductVerifier.PVphone == user.UStelphone
+                                                                          ).first() else False))
+        return Success('获取用户信息成功', data=user)
+
+    def __user_fill_uw_total(self, user):
+        """用户增加用户余额和用户总收益"""
+        # 增加待结算佣金
+        uw = UserWallet.query.filter(UserWallet.USid == user.USid).first()
+        if not uw:
+            user.fill('usbalance', 0)
+            user.fill('ustotal', 0)
+            user.fill('uscash', 0)
+        else:
+            user.fill('usbalance', uw.UWbalance or 0)
+            user.fill('ustotal', uw.UWtotal or 0)
+            user.fill('uscash', uw.UWcash or 0)
+        # todo 佣金部分
+        # ucs = UserCommission.query.filter(
+        #     UserCommission.USid == user.USid,
+        #     UserCommission.UCstatus == UserCommissionStatus.preview.value,
+        #     UserCommission.isdelete == False).all()
+        # uc_total = sum([Decimal(str(uc.UCcommission)) for uc in ucs])
+        #
+        # uswithdrawal = db.session.query(func.sum(CashNotes.CNcashNum)
+        #                                 ).filter(CashNotes.USid == user.USid,
+        #                                          CashNotes.isdelete == False,
+        #                                          CashNotes.CNstatus == ApprovalAction.submit.value
+        #                                          # CashNotes.CNstatus.in_([CashStatus.submit.value,
+        #                                          #                        CashStatus.agree.value])
+        #                                          ).scalar()
+        #
+        # user.fill('uswithdrawal', uswithdrawal or 0)
+        #
+        # user.fill('usexpect', float('%.2f' % uc_total))

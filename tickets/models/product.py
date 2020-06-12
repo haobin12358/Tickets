@@ -26,3 +26,13 @@ class Product(Base):
     longitude = Column(String(255), comment='经度')
     latitude = Column(String(255), comment='纬度')
     address = Column(Text, comment='游玩场所位置')
+
+
+class ProductVerifier(Base):
+    """
+    核销员
+    """
+    __tablename__ = 'ProductVerifier'
+    PVid = Column(String(64), primary_key=True)
+    SUid = Column(String(64), comment='供应商')
+    PVphone = Column(String(13), nullable=False)
