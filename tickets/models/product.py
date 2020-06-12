@@ -64,7 +64,7 @@ class ProductOrderActivation(Base):
     """
     门票订单活跃度关联表
     """
-    __tablename__ = 'TicketsOrderActivation'
+    __tablename__ = 'ProductOrderActivation'
     POAid = Column(String(64), primary_key=True)
     OMid = Column(String(64), comment='订单')
     ATid = Column(String(64), comment='活跃度')
