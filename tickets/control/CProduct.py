@@ -2,17 +2,76 @@ import json
 import uuid
 from datetime import datetime
 from flask import request
-from sqlalchemy import false
+from sqlalchemy import false, func
 from tickets.config.enums import UserStatus, ProductStatus
 from tickets.extensions.error_response import ParamsError, AuthorityError
-from tickets.extensions.interface.user_interface import admin_required, is_admin, is_supplizer, phone_required
+from tickets.extensions.interface.user_interface import admin_required, is_admin, is_supplizer, phone_required, is_user
 from tickets.extensions.params_validates import parameter_required, validate_arg, validate_price
 from tickets.extensions.register_ext import db
 from tickets.extensions.success_response import Success
-from tickets.models import Supplizer, Product
+from tickets.models import Supplizer, Product, User
 
 
 class CProduct(object):
+
+    def list_product(self):
+        """商品列表"""
+        args = request.args.to_dict()
+        filter_args = []
+        if not is_admin():
+            filter_args.append(Product.PRstatus != ProductStatus.interrupt.value)
+        if is_supplizer():
+            filter_args.append(Product.SUid == getattr(request, 'user').id)
+        products = Product.query.filter(Product.isdelete == false(), *filter_args
+                                        ).order_by(func.field(Product.PRstatus, ProductStatus.active.value,
+                                                              ProductStatus.ready.value, ProductStatus.over.value),
+                                                   Product.PRissueStartTime.asc(),
+                                                   Product.createtime.desc()).all_with_page()
+        products_fields = ['PRid', 'PRname', 'PRimg', 'PRlinePrice', 'PRtruePrice', 'PRnum', 'PRtimeLimeted',
+                           'PRstatus']
+        for product in products:
+            product.fields = products_fields
+            product.fill('prstatus_zh', ProductStatus(product.PRstatus).zh_value)
+        return Success(data=products)
+
+    def get_product(self):
+        """商品详情"""
+        args = parameter_required(('prid',))
+        prid = args.get('prid')
+        secret_usid = args.get('secret_usid')
+        product = Product.query.filter(Product.isdelete == false(), Product.PRid == prid).first_('未找到商品信息')
+        self._fill_product(product)
+        return Success(data=product)
+
+    def _fill_product(self, product):
+        product.hide('CreatorId', 'CreatorType', 'SUid', 'address', 'longitude', 'latitude')
+        now = datetime.now()
+        if product.PRtimeLimeted:
+            if product.PRstatus == ProductStatus.ready.value and product.PRissueStartTime > now:  # 距抢票开始倒计时
+                countdown = product.PRissueStartTime - now
+            elif product.PRstatus == ProductStatus.active.value and product.PRissueEndTime > now:  # 距抢票结束倒计时
+                countdown = product.PRissueEndTime - now
+            else:
+                countdown = None
+            if countdown:
+                hours = str(countdown.days * 24 + (countdown.seconds // 3600))
+                minutes = str((countdown.seconds % 3600) // 60)
+                seconds = str((countdown.seconds % 3600) % 60)
+                countdown = "{}:{}:{}".format('0' + hours if len(hours) == 1 else hours,
+                                              '0' + minutes if len(minutes) == 1 else minutes,
+                                              '0' + seconds if len(seconds) == 1 else seconds)
+
+            product.fill('countdown', countdown)
+        product.fill('prstatus_zh', ProductStatus(product.PRstatus).zh_value)
+        # product.fill('scorerule', self._query_rules(RoleType.activationrole.value))
+        # ticket.fill('ticategory', json.loads(ticket.TIcategory))  # 2.0版多余
+        verified = True if is_user() and User.query.filter(User.isdelete == false(),
+                                                           User.USid == getattr(request, 'user').id
+                                                           ).first().USidentification else False
+        product.fill('verified', verified)
+        product.fill('position', {'tiaddress': product.address,
+                                  'longitude': product.longitude,
+                                  'latitude': product.latitude})
 
     def create_product(self):
         """创建商品"""

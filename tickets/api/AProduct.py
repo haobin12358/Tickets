@@ -8,6 +8,8 @@ class AProduct(Resource):
 
     def get(self, product):
         apis = {
+            'list': self.product.list_product,
+            'get': self.product.get_product,
         }
         return apis
 
