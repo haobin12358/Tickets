@@ -17,7 +17,8 @@ from tickets.extensions.request_handler import _get_user_agent
 from tickets.extensions.success_response import Success
 from tickets.extensions.token_handler import usid_to_token
 from tickets.extensions.weixin import WeixinLogin
-from tickets.models import User, SharingParameters, UserLoginTime, UserWallet, ProductVerifier
+from tickets.models import User, SharingParameters, UserLoginTime, UserWallet, ProductVerifier, AddressProvince, \
+    AddressArea, AddressCity
 
 
 class CUser(object):
@@ -327,6 +328,7 @@ class CUser(object):
         user = User.query.filter(User.USid == getattr(request, 'user').id, User.isdelete == false()).first()
         if not user:
             raise TokenError('请重新登录')
+        user.fields = ['USname', 'USname', 'USgender', 'USheader', 'USwxacode']
         user.fill('usbirthday', str(user.USbirthday)[:10])
         user.fill('usminilevel', MiniUserGrade(user.USminiLevel).zh_value)
         self.__user_fill_uw_total(user)
@@ -334,10 +336,21 @@ class CUser(object):
         if not user.USwxacode:
             with db.auto_commit():
                 user.USwxacode = self.wxacode_unlimit(user.USid)
-        user.fill('ticketverifier', (False if not user.UStelphone else
-                                     True if ProductVerifier.query.filter(ProductVerifier.isdelete == false(),
-                                                                          ProductVerifier.PVphone == user.UStelphone
-                                                                          ).first() else False))
+
+        address = db.session.query(AddressProvince.APid, AddressProvince.APname, AddressCity.ACid,
+                                   AddressCity.ACname, AddressArea.AAid, AddressArea.AAname).filter(
+            AddressArea.ACid == AddressCity.ACid, AddressCity.APid == AddressProvince.APid,
+            AddressArea.AAid == user.USareaId).first()
+        usarea_info = [{'apid': address[0], 'apname': address[1]},
+                       {'acid': address[2], 'acname': address[3]},
+                       {'aaid': address[4], 'aaname': address[5]}] if address else []
+        user.fill('usarea_info', usarea_info)
+        user.fill('usarea_str', '-'.join(map(lambda x: address[x], (1, 3, 5))) if address else '')
+
+        user.fill('product_verifier', (False if not user.UStelephone else
+                                       True if ProductVerifier.query.filter(ProductVerifier.isdelete == false(),
+                                                                            ProductVerifier.PVphone == user.UStelephone
+                                                                            ).first() else False))
         return Success('获取用户信息成功', data=user)
 
     def __user_fill_uw_total(self, user):
@@ -346,12 +359,12 @@ class CUser(object):
         uw = UserWallet.query.filter(UserWallet.USid == user.USid).first()
         if not uw:
             user.fill('usbalance', 0)
-            user.fill('ustotal', 0)
-            user.fill('uscash', 0)
+            # user.fill('ustotal', 0)
+            # user.fill('uscash', 0)
         else:
             user.fill('usbalance', uw.UWbalance or 0)
-            user.fill('ustotal', uw.UWtotal or 0)
-            user.fill('uscash', uw.UWcash or 0)
+            # user.fill('ustotal', uw.UWtotal or 0)
+            # user.fill('uscash', uw.UWcash or 0)
         # todo 佣金部分
         # ucs = UserCommission.query.filter(
         #     UserCommission.USid == user.USid,
