@@ -20,5 +20,6 @@ class AUser(Resource):
             'bind_phone': self.cuser.bind_phone,
             'test_login': self.cuser.test_login,
             'update_usinfo': self.cuser.update_usinfo,
+            'apply_cash': self.cuser.apply_cash,
         }
         return apis

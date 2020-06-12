@@ -2,16 +2,18 @@ import os
 from datetime import datetime
 import re
 import uuid
+from decimal import Decimal
 
 import requests
 from flask import current_app, request
 from sqlalchemy import false
 from tickets.common.default_head import GithubAvatarGenerator
-from tickets.config.enums import MiniUserGrade
+from tickets.config.enums import MiniUserGrade, ApplyFrom, WXLoginFrom
 from tickets.config.secret import MiniProgramAppId, MiniProgramAppSecret
 from tickets.control.BaseControl import BaseController
-from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError, NotFound
-from tickets.extensions.interface.user_interface import token_required, phone_required
+from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError, NotFound, \
+    InsufficientConditionsError
+from tickets.extensions.interface.user_interface import token_required, phone_required, is_admin, is_supplizer, is_user
 from tickets.extensions.params_validates import parameter_required, validate_arg
 from tickets.extensions.register_ext import db, mp_miniprogram, qiniu_oss
 from tickets.extensions.request_handler import _get_user_agent
@@ -476,3 +478,93 @@ class CUser(object):
                     'total': total
                     }
         return Success(data=response).get_body(total_count=1, total_page=1)
+
+    @phone_required
+    def apply_cash(self):
+        if is_admin():
+            commision_for = ApplyFrom.platform.value
+        elif is_supplizer():
+            commision_for = ApplyFrom.supplizer.value
+        else:
+            commision_for = ApplyFrom.user.value
+        # 提现资质校验
+        # self.__check_apply_cash(commision_for)
+        # data = parameter_required(('cncashnum', 'cncardno', 'cncardname', 'cnbankname', 'cnbankdetail'))
+        data = parameter_required(('cncashnum',))
+        try:
+            cncashnum = data.get('cncashnum')
+            if not re.match(r'(^[1-9](\d+)?(\.\d{1,2})?$)|(^0$)|(^\d\.\d{1,2}$)', str(cncashnum)):
+                raise ValueError
+            cncashnum = float(cncashnum)
+        except Exception as e:
+            current_app.logger.error('cncashnum value error: {}'.format(e))
+            raise ParamsError('提现金额格式错误')
+        uw = UserWallet.query.filter(
+            UserWallet.USid == request.user.id,
+            UserWallet.isdelete == False,
+            UserWallet.CommisionFor == commision_for
+        ).first()
+        balance = uw.UWcash if uw else 0
+        if cncashnum > float(balance):
+            current_app.logger.info('提现金额为 {0}  实际余额为 {1}'.format(cncashnum, balance))
+            raise ParamsError('提现金额超出余额')
+        elif not (0.30 <= cncashnum <= 5000):
+            raise ParamsError('当前测试版本单次可提现范围(0.30 ~ 5000元)')
+
+        uw.UWcash = Decimal(str(uw.UWcash)) - Decimal(cncashnum)
+        kw = {}
+        if commision_for == ApplyFrom.supplizer.value:
+            pass
+            # todo 供应商提现
+            # sa = SupplizerAccount.query.filter(
+            #     SupplizerAccount.SUid == request.user.id, SupplizerAccount.isdelete == False).first()
+            # cn = CashNotes.create({
+            #     'CNid': str(uuid.uuid1()),
+            #     'USid': request.user.id,
+            #     'CNbankName': sa.SAbankName,
+            #     'CNbankDetail': sa.SAbankDetail,
+            #     'CNcardNo': sa.SAcardNo,
+            #     'CNcashNum': Decimal(cncashnum).quantize(Decimal('0.00')),
+            #     'CNcardName': sa.SAcardName,
+            #     'CommisionFor': commision_for
+            # })
+            # kw.setdefault('CNcompanyName', sa.SACompanyName)
+            # kw.setdefault('CNICIDcode', sa.SAICIDcode)
+            # kw.setdefault('CNaddress', sa.SAaddress)
+            # kw.setdefault('CNbankAccount', sa.SAbankAccount)
+        else:
+            user = User.query.filter(User.USid == request.user.id, User.isdelete == False).first()
+
+        #     cn = CashNotes.create({
+        #         'CNid': str(uuid.uuid1()),
+        #         'USid': user.USid,
+        #         'CNcashNum': Decimal(cncashnum).quantize(Decimal('0.00')),
+        #         'CommisionFor': commision_for
+        #     })
+        #     if str(applyplatform) == str(WXLoginFrom.miniprogram.value):
+        #         setattr(cn, 'ApplyPlatform', WXLoginFrom.miniprogram.value)
+        # db.session.add(cn)
+        # if is_admin():
+        #     BASEADMIN().create_action(AdminActionS.insert.value, 'CashNotes', str(uuid.uuid1()))
+        # db.session.flush()
+        # # 创建审批流
+        #
+        # self.create_approval('tocash', request.user.id, cn.CNid, commision_for, **kw)
+        return Success('已成功提交提现申请， 我们将在3个工作日内完成审核，请及时关注您的账户余额')
+
+    def __check_apply_cash(self, commision_for):
+        """校验提现资质"""
+        user = User.query.filter(User.USid == request.user.id, User.isdelete == False).first()
+        if not user or not (user.USrealname and user.USidentification):
+            raise InsufficientConditionsError('没有实名认证')
+        #
+        # elif commision_for == ApplyFrom.supplizer.value:
+        #     sa = SupplizerAccount.query.filter(
+        #         SupplizerAccount.SUid == request.user.id, SupplizerAccount.isdelete == False).first()
+        #     if not sa or not (sa.SAbankName and sa.SAbankDetail and sa.SAcardNo and sa.SAcardName and sa.SAcardName
+        #                       and sa.SACompanyName and sa.SAICIDcode and sa.SAaddress and sa.SAbankAccount):
+        #         raise InsufficientConditionsError('账户信息和开票不完整，请补全账户信息和开票信息')
+        #     try:
+        #         WexinBankCode(sa.SAbankName)
+        #     except Exception:
+        #         raise ParamsError('系统暂不支持提现账户中的银行，请在 "设置 - 商户信息 - 提现账户" 重新设置银行卡信息。 ')
