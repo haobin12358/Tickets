@@ -5,7 +5,7 @@ from flask import request
 from sqlalchemy import false
 from tickets.config.enums import UserStatus, ProductStatus
 from tickets.extensions.error_response import ParamsError, AuthorityError
-from tickets.extensions.interface.user_interface import admin_required, is_admin, is_supplizer
+from tickets.extensions.interface.user_interface import admin_required, is_admin, is_supplizer, phone_required
 from tickets.extensions.params_validates import parameter_required, validate_arg, validate_price
 from tickets.extensions.register_ext import db
 from tickets.extensions.success_response import Success
@@ -34,6 +34,8 @@ class CProduct(object):
                                  })
             product = Product.create(product_dict)
             db.session.add(product)
+        # if product.PRtimeLimeted:
+
         # todo 分限时 不 限时
         # 异步任务: 开始
         # self._create_celery_task(ticket.TIid, ticket_dict.get('TIstartTime'))
@@ -188,3 +190,17 @@ class CProduct(object):
         except (TypeError, ValueError):
             raise ParamsError('经纬度应为合适范围内的浮点数')
         return str(lat), str(long)
+
+    @phone_required
+    def product_verified(self):
+        """商品核销"""
+        data = parameter_required('param')
+        param = data.get('param')
+        try:
+            prid, secret_usid = str(param).split('&')
+        except ValueError:
+            raise ParamsError('试用码无效')
+
+        # todo
+
+        return Success('门票验证成功', data='sdafsdagq2903217u45r8qfasdklh')

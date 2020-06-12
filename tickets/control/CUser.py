@@ -8,6 +8,7 @@ import requests
 from flask import current_app, request
 from sqlalchemy import false
 from tickets.common.default_head import GithubAvatarGenerator
+from tickets.common.id_check import DOIDCheck
 from tickets.config.enums import MiniUserGrade, ApplyFrom, WXLoginFrom
 from tickets.config.secret import MiniProgramAppId, MiniProgramAppSecret
 from tickets.control.BaseControl import BaseController
@@ -22,7 +23,7 @@ from tickets.extensions.token_handler import usid_to_token
 from tickets.extensions.weixin import WeixinLogin
 from tickets.extensions.weixin.mp import WeixinMPError
 from tickets.models import User, SharingParameters, UserLoginTime, UserWallet, ProductVerifier, AddressProvince, \
-    AddressArea, AddressCity
+    AddressArea, AddressCity, IDCheck, UserMedia
 
 
 class CUser(object):
@@ -568,3 +569,108 @@ class CUser(object):
         #         WexinBankCode(sa.SAbankName)
         #     except Exception:
         #         raise ParamsError('系统暂不支持提现账户中的银行，请在 "设置 - 商户信息 - 提现账户" 重新设置银行卡信息。 ')
+
+    def _verify_chinese(self, name):
+        """
+        校验是否是纯汉字
+        :param name:
+        :return: 汉字, 如果有其他字符返回 []
+        """
+        RE_CHINESE = re.compile(r'^[\u4e00-\u9fa5]{1,8}$')
+        return RE_CHINESE.findall(name)
+
+    @token_required
+    def user_certification(self):
+        """实名认证"""
+        data = parameter_required(('usrealname', 'usidentification'))
+        user = self._get_exist_user((User.USid == getattr(request, 'user').id, ))
+        if user.USidentification:
+            raise ParamsError('已提交过认证')
+        usrealname, ustelephone = data.get('usrealname'), data.get('ustelephone')
+        usidentification = data.get('usidentification')
+        if not re.match(r'^1\d{10}$', ustelephone):
+            raise ParamsError('请填写正确的手机号码')
+        checked_name = self._verify_chinese(usrealname)
+        if not checked_name or len(checked_name[0]) < 2:
+            raise ParamsError('请正确填写真实姓名')
+        if len(usidentification) < 18:
+            raise ParamsError('请正确填写身份证号码')
+        with db.auto_commit():
+            res = self.check_idcode(data, user)
+        return res
+
+    def check_idcode(self, data, user):
+        """验证用户身份姓名是否正确"""
+
+        name = data.get("usrealname")
+        idcode = data.get("usidentification")
+        if not (name and idcode):
+            raise ParamsError('姓名和身份证号码不能为空')
+        idcheck = self.get_idcheck_by_name_code(name, idcode)
+        if not idcheck:
+            idcheck = DOIDCheck(name, idcode)
+            newidcheck_dict = {
+                "IDCid": str(uuid.uuid1()),
+                "IDCcode": idcheck.idcode,
+                "IDCname": idcheck.name,
+                "IDCresult": idcheck.result
+            }
+            if idcheck.result:
+                newidcheck_dict['IDCrealName'] = idcheck.check_response.get('result').get('realName')
+                newidcheck_dict['IDCcardNo'] = idcheck.check_response.get('result').get('cardNo')
+                newidcheck_dict['IDCaddrCode'] = idcheck.check_response.get('result').get('details').get('addrCode')
+                newidcheck_dict['IDCbirth'] = idcheck.check_response.get('result').get('details').get('birth')
+                newidcheck_dict['IDCsex'] = idcheck.check_response.get('result').get('details').get('sex')
+                newidcheck_dict['IDCcheckBit'] = idcheck.check_response.get('result').get('details').get('checkBit')
+                newidcheck_dict['IDCaddr'] = idcheck.check_response.get('result').get('details').get('addr')
+                newidcheck_dict['IDCerrorCode'] = idcheck.check_response.get('error_code')
+                newidcheck_dict['IDCreason'] = idcheck.check_response.get('reason')
+            else:
+                newidcheck_dict['IDCerrorCode'] = idcheck.check_response.get('error_code')
+                newidcheck_dict['IDCreason'] = idcheck.check_response.get('reason')
+            newidcheck = IDCheck.create(newidcheck_dict)
+            check_result = idcheck.result
+            check_message = idcheck.check_response.get('reason')
+            db.session.add(newidcheck)
+        else:
+            check_message = idcheck.IDCreason
+            check_result = idcheck.IDCresult
+
+        if check_result:
+            # 如果验证成功，更新用户信息
+            # update_result = self.update_user_by_filter(us_and_filter=[User.USid == request.user.id], us_or_filter=[],
+            #                            usinfo={"USrealname": name, "USidentification": idcode})
+            # if not update_result:
+            #     gennerc_log('update user error usid = {0}, name = {1}, identification = {2}'.format(
+            #         request.user.id, name, idcode), info='error')
+            #     raise SystemError('服务器异常')
+            user.USrealname = name
+            user.USplayName = name
+            user.USidentification = idcode
+            UserMedia.query.filter(UserMedia.USid == request.user.id,
+                                   UserMedia.isdelete == false()).update({'isdelete': True})
+            um_front = UserMedia.create({
+                "UMid": str(uuid.uuid1()),
+                "USid": request.user.id,
+                "UMurl": data.get("umfront"),
+                "UMtype": 1
+            })
+            um_back = UserMedia.create({
+                "UMid": str(uuid.uuid1()),
+                "USid": request.user.id,
+                "UMurl": data.get("umback"),
+                "UMtype": 2
+            })
+            db.session.add(um_front)
+            db.session.add(um_back)
+            return Success('实名认证成功', data=check_message)
+        raise ParamsError('实名认证失败：{0}'.format(check_message))
+
+    @staticmethod
+    def get_idcheck_by_name_code(name, idcode):
+        return IDCheck.query.filter(
+            IDCheck.IDCcode == idcode,
+            IDCheck.IDCname == name,
+            IDCheck.IDCerrorCode != 80008,
+            IDCheck.isdelete == False
+        ).first_()
