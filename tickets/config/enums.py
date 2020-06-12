@@ -32,15 +32,6 @@ class ProductBrandStatus(Enum):
     off_shelves = 10, '下架'
 
 
-class PayType(Enum):
-    wechat_pay = 0, '微信支付'
-    alipay = 10, '支付宝'
-    codepay = 20, '激活码支付'
-    integralpay = 30, '星币支付'
-    mixedpay = 40, '组合支付'
-    test_pay = 10086, '测试支付'
-
-
 class Client(Enum):
     """客户端"""
     wechat = 0, '微信'
@@ -830,12 +821,15 @@ class ProductStatus(Enum):
     over = 3, '已结束'
 
 
-class TicketsOrderStatus(Enum):
+class OrderStatus(Enum):
     """已购票状态"""
-    not_won = -1, '未中奖'
-    pending = 0, '待开奖'
-    has_won = 1, '中奖'
-    completed = 2, '已出票'
+    cancle = -2, '已取消'
+    not_won = -1, '未通过'
+    wait_pay = 1, '待支付'
+    pending = 2, '已申请'
+    has_won = 10, '获得试用'
+    completed = 20, '已使用'  # 2.0 修改取消二次押金
+    accomplish = 30, '已完成'
 
 
 class TicketDepositType(Enum):
@@ -853,6 +847,13 @@ class UserMaterialFeedbackStatus(Enum):
     reject = -1, '未通过'
     wait = 0, '待退押金'
     refund = 1, '已退'
+
+
+class PayType(Enum):
+    """购票支付类型"""
+    deposit = 1, '押金购'
+    cash = 2, '直购'
+    scorepay = 3, '支付分'
 
 
 if __name__ == '__main__':
