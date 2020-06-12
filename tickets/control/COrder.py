@@ -579,7 +579,7 @@ class COrder():
         qrcodeWithtext(text, filename)
 
         # 二维码上传到七牛云
-        if API_HOST == 'https://planet.sanbinit.cn':
+        if current_app.config.get('IMG_TO_OSS'):
             try:
                 qiniu_oss.save(data=filename, filename=filedbname[1:])
             except Exception as e:

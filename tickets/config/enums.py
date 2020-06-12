@@ -116,12 +116,6 @@ class OrderRefundORAstate(Enum):
     only_money = 10, '仅退款'
 
 
-class DisputeTypeType(Enum):
-    """纠纷类型"""
-    not_recv = 10, '未收到货'
-    ready_recv = 0, '已收到货'
-
-
 class ORAproductStatus(Enum):
     """退货申请时商品状态0已收货, 10 未收货"""
     already_recv = 0, '已收货'
@@ -143,36 +137,6 @@ class ItemAuthrity(Enum):
     other = 30, '其他特殊'
 
 
-class ItemPostion(Enum):
-    scene = 0, '场景推荐页'
-    index = 10, '首页'
-    new_user_page = 20, '新人页'
-    other = 30, '其他特殊'
-    news_bind = 40, '可供资讯绑定'
-
-
-class LogisticsSearchStatus(Enum):
-    """物流状态"""
-    # :polling: 监控中，shutdown: 结束，abort: 中止，updateall：重新推送, 此
-    # 为快递100参数,不用
-    polling = '监控中'
-    shutdown = '结束'
-    abort = '终止'
-    updateall = '重新推送'
-
-
-class LogisticsSignStatus(Enum):
-    """物流签收状态"""
-    #  1.在途中 2.正在派件 3.已签收 4.派送失败
-    api_error = -1, '物流异常'
-    wait_collect = 0, '等待揽收'  # 等待揽收
-    on_the_way = 1, '在途中'
-    sending = 2, '正在派件'  # 正在派件
-    already_signed = 3, '已签收'  # 已签收
-    send_fail = 4, '配送失败'  # 配送失败
-    error = 200, '其他异常'
-
-
 class ApprovalType(Enum):
     """审批流状态"""
     toagent = 1
@@ -190,23 +154,6 @@ class PermissionType(Enum):
     toreturn = 3
     tocash = 4
     topublish = 5
-
-
-class NewsStatus(Enum):
-    """资讯状态"""
-    usual = (1, '已上架')  # 上架
-    auditing = (2, '审核中')  # 审核中
-    refuse = (0, '已下架')  # 下架
-    all = None
-
-
-# user
-class UserSearchHistoryType(Enum):
-    """搜索记录类型 0 商品, 10 圈子"""
-    product = 0, '商品'
-    news = 10, '圈子'
-    topic = 20, '话题'
-    user = 30, '用户'
 
 
 class UserIntegralType(Enum):
@@ -253,46 +200,6 @@ class AdminAction(Enum):
     ADtelphone = '手机号码'
 
 
-class MagicBoxJoinStatus(Enum):
-    """魔盒状态"""
-    expired = -10, '已过期'
-    pending = 0, '进行中'
-    completed = 10, '已购买'
-
-
-class MagicBoxOpenAction(Enum):
-    reduce = 0, '减少'
-    increase = 10, '增加'
-
-
-class ActivityDepositStatus(Enum):
-    failed = -20, '无效'
-    revert = -10, '已退还'
-    valid = 0, '有效'
-    deduct = 10, '已扣除'
-
-
-class GuessNumAwardStatus(Enum):
-    """猜数字奖品状态"""
-    auditing = 0, '审核中'
-    upper = 10, '通过'
-    reject = -10, '拒绝'
-
-
-class TrialCommodityStatus(Enum):
-    """试用商品状态"""
-
-    lose_effect = -20, '已失效'
-    cancel = -10, '已取消'
-    upper = 0, '已上架'
-    lose_upper = 10, '重新审核中'
-    # off_shelves = 10, '已下架'
-    auditing = 20, '审核中'
-    reject = 30, '下架/审核失败'
-    sell_out = 40, '已售罄'
-    all = None
-
-
 class ActivityType(Enum):
     """活动类型"""
     fresh_man = 0, '新人'
@@ -301,33 +208,6 @@ class ActivityType(Enum):
     free_use = 3, '免费试用'
     time_limited = 4, '限时活动'
     guess_group = 5, '竞猜拼团'
-
-
-class GuessGroupStatus(Enum):
-    """拼团状态"""
-    failed = -10, '拼团失败'
-    pending = 0, '等待分享'
-    waiting = 10, '等待开奖'
-    completed = 20, '拼团完成'
-
-
-class GuessRecordStatus(Enum):
-    """拼团记录状态"""
-    invalid = -10, '失效'
-    valid = 0, '有效'
-
-
-class GuessRecordDigits(Enum):
-    """竞猜记录位数"""
-    singleDigits = 0, '个位'
-    tenDigits = 10, '十位'
-    hundredDigits = 20, '百位'
-
-
-class QuestAnswerNoteType(Enum):
-    qo = 0, '问题分类'
-    qu = 1, '问题'
-    qa = 2, '回答'
 
 
 class UserLoginTimetype(Enum):
@@ -699,11 +579,6 @@ class UserMessageTyep(Enum):
     loc = 4, '定位'
 
 
-class CorrectNumType(Enum):
-    composite_index = 0, '上证指数'
-    lottery_3d = 1, '福彩3D'
-
-
 class TravelRecordType(Enum):
     """时光记录类别"""
     raiders = 0, '攻略'
@@ -711,42 +586,6 @@ class TravelRecordType(Enum):
     essay = 2, '随笔'
 
 
-class TravelRecordStatus(Enum):
-    """时光记录状态"""
-    draft = 0, '草稿'
-    published = 1, '已发布'
-    auditing = 2, '审核中'
-
-
-class UserPlanetMessageStatus(Enum):
-    unread = 0, '未读'
-    read = 1, '已读'
-
-
-class PlayStatus(Enum):
-    draft = 0, '草稿'
-    publish = 1, '组队中'
-    activity = 2, '活动中'
-    close = 3, '已关闭'
-    makeover = 4, '转让中'
-    wait_pay = 5, '待支付'
-
-
-class EnterCostType(Enum):
-    cost = 0, '费用'
-    insurance = 1, '保险'
-
-
-class EnterLogStatus(Enum):
-    wait_pay = 0, '待支付'
-    success = 1, '成功'
-    cancel = 2, '用户取消'
-    refund = 3, '退款并取消'
-    canceled = 4, '领队取消'
-    error = -1, '异常'
-
-
-# class UserLevel(Enum):
 class MiniUserGrade(Enum):
     normal = 0, '游客'
     guide = 5, '导游'
@@ -774,15 +613,6 @@ class GuideApplyStatus(Enum):
     agree = 1, '已审核'
     auditing = 0, '审核中'
     refuse = -1, '已拒绝'
-
-
-class MakeOverStatus(Enum):
-    """小程序活动转让状态"""
-    wait_confirm = 0, '待确认'
-    wait_pay = 1, '待支付'
-    success = 2, '成功'
-    refuse = -1, '拒绝'
-    cancle = -2, '取消'
 
 
 class PlayPayType(Enum):

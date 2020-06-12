@@ -1,22 +1,28 @@
 import os
-import datetime
+from datetime import datetime
 import re
 import uuid
+from decimal import Decimal
 
 import requests
 from flask import current_app, request
 from sqlalchemy import false
 from tickets.common.default_head import GithubAvatarGenerator
+from tickets.config.enums import MiniUserGrade, ApplyFrom, WXLoginFrom
 from tickets.config.secret import MiniProgramAppId, MiniProgramAppSecret
-from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError
-from tickets.extensions.interface.user_interface import token_required
-from tickets.extensions.params_validates import parameter_required
+from tickets.control.BaseControl import BaseController
+from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError, NotFound, \
+    InsufficientConditionsError
+from tickets.extensions.interface.user_interface import token_required, phone_required, is_admin, is_supplizer, is_user
+from tickets.extensions.params_validates import parameter_required, validate_arg
 from tickets.extensions.register_ext import db, mp_miniprogram, qiniu_oss
 from tickets.extensions.request_handler import _get_user_agent
 from tickets.extensions.success_response import Success
 from tickets.extensions.token_handler import usid_to_token
 from tickets.extensions.weixin import WeixinLogin
-from tickets.models import User, SharingParameters, UserLoginTime
+from tickets.extensions.weixin.mp import WeixinMPError
+from tickets.models import User, SharingParameters, UserLoginTime, UserWallet, ProductVerifier, AddressProvince, \
+    AddressArea, AddressCity
 
 
 class CUser(object):
@@ -207,7 +213,7 @@ class CUser(object):
 
     def _get_path(self, fold):
         """获取服务器上文件路径"""
-        time_now = datetime.datetime.now()
+        time_now = datetime.now()
         year = str(time_now.year)
         month = str(time_now.month)
         day = str(time_now.day)
@@ -308,3 +314,257 @@ class CUser(object):
         if not isinstance(kwargs, dict):
             return
         return '&'.join(map(lambda x: '{}={}'.format(x, kwargs.get(x)), kwargs.keys()))
+
+    @staticmethod
+    def test_login():
+        """测试登录"""
+        data = parameter_required()
+        tel = data.get('ustelephone')
+        user = User.query.filter(User.isdelete == false(), User.UStelephone == tel).first()
+        if not user:
+            raise NotFound
+        token = usid_to_token(user.USid, model='User', username=user.USname)
+        return Success(data={'token': token, 'usname': user.USname})
+
+    @token_required
+    def get_secret_usid(self):
+        """获取base64编码后的usid"""
+        secret_usid = self._base_encode(getattr(request, 'user').id)
+        return Success(data={
+            'secret_usid': secret_usid,
+        })
+
+    @token_required
+    def update_usinfo(self):
+        """更新个人资料"""
+        user = self._get_exist_user((User.USid == getattr(request, 'user').id,), '请重新登录')
+        data = parameter_required()
+        usheader = data.get('usheader')
+        usareaid, usbirthday = data.get('aaid'), data.get('usbirthday')
+        usbirthday = validate_arg(r'^\d{4}-\d{2}-\d{2}$', usbirthday, '请按正确的生日格式填写')
+        if usareaid:
+            db.session.query(AddressArea.AAid).filter(AddressArea.AAid == usareaid).first_('请选择正确的地区')
+        try:  # 检查昵称填写
+            check_content = data.get('usname')
+            check_res = mp_miniprogram.msg_sec_check(check_content)
+            current_app.logger.info('content_sec_check: {}'.format(check_res))
+        except WeixinMPError as e:
+            current_app.logger.info('check result: {}'.format(e))
+            raise ParamsError('您输入的昵称含有部分敏感词汇,请检查后重新填写')
+        # 图片校验
+        usheader_dir = usheader
+        filepath = os.path.join(current_app.config['BASEDIR'],
+                                str(usheader).split('.com')[-1].split('.cn')[-1][1:].split('_')[0])
+        BaseController().img_check(filepath, '您上传的头像')
+
+        with db.auto_commit():
+            user.update({'UScustomizeName': data.get('usname'),
+                         'UScustomizeBirthday': usbirthday,
+                         'USareaId': usareaid,
+                         'UScustomizeHeader': data.get('usheader'),
+                         })
+            db.session.add(user)
+        return Success('修改成功')
+
+    @token_required
+    def get_home(self):
+        """获取个人主页信息"""
+        user = User.query.filter(User.USid == getattr(request, 'user').id, User.isdelete == false()).first()
+        if not user:
+            raise TokenError('请重新登录')
+        user.fields = ['USname', 'USname', 'USgender', 'USheader', 'USwxacode']
+        user.fill('usbirthday', str(user.USbirthday)[:10])
+        user.fill('usminilevel', MiniUserGrade(user.USminiLevel).zh_value)
+        self.__user_fill_uw_total(user)
+        user.fill('verified', bool(user.USidentification))  # 是否信用认证
+        if not user.USwxacode:
+            with db.auto_commit():
+                user.USwxacode = self.wxacode_unlimit(user.USid)
+
+        address = db.session.query(AddressProvince.APid, AddressProvince.APname, AddressCity.ACid,
+                                   AddressCity.ACname, AddressArea.AAid, AddressArea.AAname).filter(
+            AddressArea.ACid == AddressCity.ACid, AddressCity.APid == AddressProvince.APid,
+            AddressArea.AAid == user.USareaId).first()
+        usarea_info = [{'apid': address[0], 'apname': address[1]},
+                       {'acid': address[2], 'acname': address[3]},
+                       {'aaid': address[4], 'aaname': address[5]}] if address else []
+        user.fill('usarea_info', usarea_info)
+        user.fill('usarea_str', '-'.join(map(lambda x: address[x], (1, 3, 5))) if address else '')
+
+        user.fill('product_verifier', (False if not user.UStelephone else
+                                       True if ProductVerifier.query.filter(ProductVerifier.isdelete == false(),
+                                                                            ProductVerifier.PVphone == user.UStelephone
+                                                                            ).first() else False))
+        return Success('获取用户信息成功', data=user)
+
+    def __user_fill_uw_total(self, user):
+        """用户增加用户余额和用户总收益"""
+        # 增加待结算佣金
+        uw = UserWallet.query.filter(UserWallet.USid == user.USid).first()
+        if not uw:
+            user.fill('usbalance', 0)
+            # user.fill('ustotal', 0)
+            # user.fill('uscash', 0)
+        else:
+            user.fill('usbalance', uw.UWbalance or 0)
+            # user.fill('ustotal', uw.UWtotal or 0)
+            # user.fill('uscash', uw.UWcash or 0)
+        # todo 佣金部分
+        # ucs = UserCommission.query.filter(
+        #     UserCommission.USid == user.USid,
+        #     UserCommission.UCstatus == UserCommissionStatus.preview.value,
+        #     UserCommission.isdelete == False).all()
+        # uc_total = sum([Decimal(str(uc.UCcommission)) for uc in ucs])
+        #
+        # uswithdrawal = db.session.query(func.sum(CashNotes.CNcashNum)
+        #                                 ).filter(CashNotes.USid == user.USid,
+        #                                          CashNotes.isdelete == False,
+        #                                          CashNotes.CNstatus == ApprovalAction.submit.value
+        #                                          # CashNotes.CNstatus.in_([CashStatus.submit.value,
+        #                                          #                        CashStatus.agree.value])
+        #                                          ).scalar()
+        #
+        # user.fill('uswithdrawal', uswithdrawal or 0)
+        #
+        # user.fill('usexpect', float('%.2f' % uc_total))
+
+    @phone_required
+    def my_wallet(self):
+        """我的钱包页（消费记录、提现记录）"""
+        args = request.args.to_dict()
+        date, option = args.get('date'), args.get('option')
+        user = User.query.filter(User.isdelete == false(), User.USid == getattr(request, 'user').id).first_('请重新登录')
+        if date and not re.match(r'^20\d{2}-\d{2}$', str(date)):
+            raise ParamsError('date 格式错误')
+        year, month = str(date).split('-') if date else (datetime.now().year, datetime.now().month)
+
+        # todo mock data
+        transactions = [{
+            "amount": "-¥3.05",
+            "time": "2019-07-01 16:38:29",
+            "title": "西安-宝鸡-咸阳·二日"
+        }]
+        total = '-3.05'
+        uwcash = 11
+
+        if option == 'expense':  # 消费记录
+            # transactions, total = self._get_transactions(user, year, month, args)
+            pass
+        elif option == 'withdraw':  # 提现记录
+            # transactions, total = self._get_withdraw(user, year, month)
+            pass
+        elif option == 'commission':  # 佣金收入
+            pass
+        else:
+            raise ParamsError('type 参数错误')
+        # user_wallet = UserWallet.query.filter(UserWallet.isdelete == false(), UserWallet.USid == user.USid).first()
+        # if user_wallet:
+        #     uwcash = user_wallet.UWcash
+        # else:
+        #     with db.auto_commit():
+        #         user_wallet_instance = UserWallet.create({
+        #             'UWid': str(uuid.uuid1()),
+        #             'USid': user.USid,
+        #             'CommisionFor': ApplyFrom.user.value,
+        #             'UWbalance': Decimal('0.00'),
+        #             'UWtotal': Decimal('0.00'),
+        #             'UWcash': Decimal('0.00'),
+        #             'UWexpect': Decimal('0.00')
+        #         })
+        #         db.session.add(user_wallet_instance)
+        #         uwcash = 0
+        response = {'uwcash': uwcash,
+                    'transactions': transactions,
+                    'total': total
+                    }
+        return Success(data=response).get_body(total_count=1, total_page=1)
+
+    @phone_required
+    def apply_cash(self):
+        if is_admin():
+            commision_for = ApplyFrom.platform.value
+        elif is_supplizer():
+            commision_for = ApplyFrom.supplizer.value
+        else:
+            commision_for = ApplyFrom.user.value
+        # 提现资质校验
+        # self.__check_apply_cash(commision_for)
+        # data = parameter_required(('cncashnum', 'cncardno', 'cncardname', 'cnbankname', 'cnbankdetail'))
+        data = parameter_required(('cncashnum',))
+        try:
+            cncashnum = data.get('cncashnum')
+            if not re.match(r'(^[1-9](\d+)?(\.\d{1,2})?$)|(^0$)|(^\d\.\d{1,2}$)', str(cncashnum)):
+                raise ValueError
+            cncashnum = float(cncashnum)
+        except Exception as e:
+            current_app.logger.error('cncashnum value error: {}'.format(e))
+            raise ParamsError('提现金额格式错误')
+        uw = UserWallet.query.filter(
+            UserWallet.USid == request.user.id,
+            UserWallet.isdelete == False,
+            UserWallet.CommisionFor == commision_for
+        ).first()
+        balance = uw.UWcash if uw else 0
+        if cncashnum > float(balance):
+            current_app.logger.info('提现金额为 {0}  实际余额为 {1}'.format(cncashnum, balance))
+            raise ParamsError('提现金额超出余额')
+        elif not (0.30 <= cncashnum <= 5000):
+            raise ParamsError('当前测试版本单次可提现范围(0.30 ~ 5000元)')
+
+        uw.UWcash = Decimal(str(uw.UWcash)) - Decimal(cncashnum)
+        kw = {}
+        if commision_for == ApplyFrom.supplizer.value:
+            pass
+            # todo 供应商提现
+            # sa = SupplizerAccount.query.filter(
+            #     SupplizerAccount.SUid == request.user.id, SupplizerAccount.isdelete == False).first()
+            # cn = CashNotes.create({
+            #     'CNid': str(uuid.uuid1()),
+            #     'USid': request.user.id,
+            #     'CNbankName': sa.SAbankName,
+            #     'CNbankDetail': sa.SAbankDetail,
+            #     'CNcardNo': sa.SAcardNo,
+            #     'CNcashNum': Decimal(cncashnum).quantize(Decimal('0.00')),
+            #     'CNcardName': sa.SAcardName,
+            #     'CommisionFor': commision_for
+            # })
+            # kw.setdefault('CNcompanyName', sa.SACompanyName)
+            # kw.setdefault('CNICIDcode', sa.SAICIDcode)
+            # kw.setdefault('CNaddress', sa.SAaddress)
+            # kw.setdefault('CNbankAccount', sa.SAbankAccount)
+        else:
+            user = User.query.filter(User.USid == request.user.id, User.isdelete == False).first()
+
+        #     cn = CashNotes.create({
+        #         'CNid': str(uuid.uuid1()),
+        #         'USid': user.USid,
+        #         'CNcashNum': Decimal(cncashnum).quantize(Decimal('0.00')),
+        #         'CommisionFor': commision_for
+        #     })
+        #     if str(applyplatform) == str(WXLoginFrom.miniprogram.value):
+        #         setattr(cn, 'ApplyPlatform', WXLoginFrom.miniprogram.value)
+        # db.session.add(cn)
+        # if is_admin():
+        #     BASEADMIN().create_action(AdminActionS.insert.value, 'CashNotes', str(uuid.uuid1()))
+        # db.session.flush()
+        # # 创建审批流
+        #
+        # self.create_approval('tocash', request.user.id, cn.CNid, commision_for, **kw)
+        return Success('已成功提交提现申请， 我们将在3个工作日内完成审核，请及时关注您的账户余额')
+
+    def __check_apply_cash(self, commision_for):
+        """校验提现资质"""
+        user = User.query.filter(User.USid == request.user.id, User.isdelete == False).first()
+        if not user or not (user.USrealname and user.USidentification):
+            raise InsufficientConditionsError('没有实名认证')
+        #
+        # elif commision_for == ApplyFrom.supplizer.value:
+        #     sa = SupplizerAccount.query.filter(
+        #         SupplizerAccount.SUid == request.user.id, SupplizerAccount.isdelete == False).first()
+        #     if not sa or not (sa.SAbankName and sa.SAbankDetail and sa.SAcardNo and sa.SAcardName and sa.SAcardName
+        #                       and sa.SACompanyName and sa.SAICIDcode and sa.SAaddress and sa.SAbankAccount):
+        #         raise InsufficientConditionsError('账户信息和开票不完整，请补全账户信息和开票信息')
+        #     try:
+        #         WexinBankCode(sa.SAbankName)
+        #     except Exception:
+        #         raise ParamsError('系统暂不支持提现账户中的银行，请在 "设置 - 商户信息 - 提现账户" 重新设置银行卡信息。 ')

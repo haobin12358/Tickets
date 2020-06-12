@@ -10,7 +10,7 @@ from tickets.extensions.success_response import Success
 from tickets.extensions.interface.user_interface import admin_required, token_required, is_user, is_admin
 from tickets.config.enums import ActivationTypeEnum, OrderStatus
 from tickets.extensions.register_ext import db
-from tickets.models import ActivationType, Activation, TicketsOrderActivation, Admin, OrderMain, Product
+from tickets.models import ActivationType, Activation, ProductOrderActivation, Admin, OrderMain, Product
 
 
 class CActivation():
@@ -104,7 +104,7 @@ class CActivation():
         now = datetime.now()
         # 活跃分只给限时商品订单统计
         tso_list = OrderMain.query.join(Product, Product.PRid == OrderMain.PRid).filter(
-            OrderMain.TSOstatus == OrderStatus.pending.value,
+            OrderMain.OMstatus == OrderStatus.pending.value,
             Product.PRissueStartTime <= now,
             Product.PRissueEndTime >= now,
             Product.PRtimeLimeted == 1,
@@ -119,14 +119,14 @@ class CActivation():
         db.session.add(at)
 
         for tso in tso_list:
-            current_app.logger.info('tso status {}'.format(tso.TSOstatus))
+            current_app.logger.info('tso status {}'.format(tso.OMstatus))
             if not no_loop:
                 tso.TSOactivation += atnum
-            db.session.add(TicketsOrderActivation.create({
-                'TOAid': str(uuid.uuid1()),
-                'TSOid': tso.TSOid,
+            db.session.add(ProductOrderActivation.create({
+                'POAid': str(uuid.uuid1()),
+                'OMid': tso.OMid,
                 'ATid': at.ATid,
-                'TOAcontent': contentid
+                'POAcontent': contentid
             }))
     #
     # @admin_required

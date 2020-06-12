@@ -28,6 +28,7 @@ class Product(Base):
     address = Column(Text, comment='游玩场所位置')
 
 
+
 class Activation(Base):
     """
     活跃度
@@ -59,12 +60,23 @@ class ActivationType(Base):
         self.hide('ADid')
 
 
-class TicketsOrderActivation(Base):
+class ProductOrderActivation(Base):
     """
     门票订单活跃度关联表
     """
     __tablename__ = 'TicketsOrderActivation'
-    TOAid = Column(String(64), primary_key=True)
+    POAid = Column(String(64), primary_key=True)
     OMid = Column(String(64), comment='订单')
     ATid = Column(String(64), comment='活跃度')
-    TOAcontent = Column(String(64), comment='如果是随笔，随笔实体id 分享： 分享人id 加精/打赏： 管理员id')
+    POAcontent = Column(String(64), comment='如果是随笔，随笔实体id 分享： 分享人id 加精/打赏： 管理员id')
+
+
+class ProductVerifier(Base):
+    """
+    核销员
+    """
+    __tablename__ = 'ProductVerifier'
+    PVid = Column(String(64), primary_key=True)
+    SUid = Column(String(64), comment='供应商')
+    PVphone = Column(String(13), nullable=False)
+
