@@ -8,7 +8,7 @@ from datetime import datetime, date, timedelta
 from decimal import Decimal
 
 from flask import request, current_app
-from sqlalchemy import false, cast, Date
+from sqlalchemy import false, cast, Date, func
 
 from tickets.config.enums import PayType, ProductStatus, UserCommissionStatus, ApplyFrom, OrderStatus
 from tickets.config.http_config import API_HOST
@@ -265,6 +265,46 @@ class COrder():
                             OrderStatus.completed.value, OrderStatus.accomplish.value,
                             OrderStatus.not_won.value,)]
         return Success(data=res)
+
+    def list_trade(self):
+        """门票购买记录"""
+        if not is_admin():
+            raise StatusError('用户无权限')
+        args = parameter_required('prid')
+        prid = args.get('prid')
+        product = Product.query.filter(Product.isdelete == false(), Product.PRid == prid).first_('无信息')
+        tos = OrderMain.query.filter(
+            OrderMain.isdelete == false(), OrderMain.PRid == prid).order_by(
+            OrderMain.OMintegralpayed.desc(), OrderMain.OMstatus.desc(), OrderMain.createtime.desc()).all_with_page()
+        res = []
+        for to in tos:
+            usinfo = db.session.query(User.USname, User.USheader
+                                      ).filter(User.isdelete == false(), User.USid == to.USid).first()
+            if not usinfo:
+                continue
+            res.append({'usname': usinfo[0],
+                        'usheader': usinfo[1],
+                        'omid': to.OMid,
+                        'createtime': to.createtime,
+                        'omstatus': to.OMStatus,
+                        'omintegralpayed': to.OMintegralpayed,
+                        'omstatus_zh': OrderStatus(to.OMStatus).zh_value
+                        })
+        trade_num, award_num = map(lambda x: db.session.query(
+            func.count(OrderMain.OMid)).filter(
+            OrderMain.isdelete == false(),
+            OrderMain.PRid == prid,
+            OrderMain.OMstatus == x,).scalar() or 0, (
+            OrderStatus.completed.value, OrderStatus.has_won.value))
+        ticket_info = {'prid': product.PRid,
+                       'prname': product.PRname,
+                       'time': '{} - {}'.format(product.PRissueStartTime, product.PRissueEndTime),
+                       'prstatus': product.PRstatus,
+                       'prstatus_zh': ProductStatus(product.PRstatus).zh_value,
+                       'trade_num': '{} / {}'.format(trade_num, product.PRnum),
+                       'award_num': '{} / {}'.format(award_num, product.PRnum)}
+        return Success(data={'product': ticket_info,
+                             'ordermain': res})
 
     def _fill_ordermain(self, om):
         om.hide('USid', 'UPperid', 'UPperid2', 'UPperid3', 'PRcreateId', 'OPayno')
@@ -562,3 +602,4 @@ class COrder():
             if product:
                 product.PRNum += 1
                 db.session.add(product)
+
