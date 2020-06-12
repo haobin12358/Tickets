@@ -9,7 +9,7 @@ from sqlalchemy import false
 from tickets.common.default_head import GithubAvatarGenerator
 from tickets.config.enums import MiniUserGrade
 from tickets.config.secret import MiniProgramAppId, MiniProgramAppSecret
-from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError
+from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError, NotFound
 from tickets.extensions.interface.user_interface import token_required
 from tickets.extensions.params_validates import parameter_required
 from tickets.extensions.register_ext import db, mp_miniprogram, qiniu_oss
@@ -309,6 +309,17 @@ class CUser(object):
         if not isinstance(kwargs, dict):
             return
         return '&'.join(map(lambda x: '{}={}'.format(x, kwargs.get(x)), kwargs.keys()))
+
+    @staticmethod
+    def test_login():
+        """测试登录"""
+        data = parameter_required()
+        tel = data.get('ustelephone')
+        user = User.query.filter(User.isdelete == false(), User.UStelephone == tel).first()
+        if not user:
+            raise NotFound
+        token = usid_to_token(user.USid, model='User', username=user.USname)
+        return Success(data={'token': token, 'usname': user.USname})
 
     @token_required
     def get_home(self):

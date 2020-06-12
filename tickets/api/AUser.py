@@ -16,5 +16,6 @@ class AUser(Resource):
         apis = {
             'mp_login': self.cuser.mini_program_login,
             'bind_phone': self.cuser.bind_phone,
+            'test_login': self.cuser.test_login,
         }
         return apis
