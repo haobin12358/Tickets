@@ -10,6 +10,7 @@ class AOrder(Resource):
         apis = {
             "list": self.corder.list,
             "list_omstatus": self.corder.list_omstatus,
+            "list_trade": self.corder.list_trade,
             "get": self.corder.get,
         }
         return apis

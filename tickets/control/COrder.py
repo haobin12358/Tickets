@@ -59,7 +59,7 @@ class COrder():
             else:
                 pp = kwargs.get('pp')
                 pp.update({
-                    'PPpaytime': datetime.now(),
+                    'OPaytime': datetime.now(),
                 })
 
             db.session.add(pp)
@@ -134,7 +134,7 @@ class COrder():
                 "USid": user.USid,
                 "PRid": prid,
                 "OMmount": product.PRlinePrice,
-                "OMtrueMount": product.PRtruePrice,
+                "OMtrueMount": mount_price,
                 "OMpayType": ompaytype,
                 "PRcreateId": product.CreatorId,
                 "PRname": product.PRname,
@@ -160,8 +160,8 @@ class COrder():
         pay_args = self._add_pay_detail(opayno=opayno, body=body, mount_price=mount_price, openid=openid,
                                         opayType=ompaytype, redirect=redirect)
         response = {
-            'pay_type': PayType.wechat_pay.name,
-            'opaytype': PayType.wechat_pay.value,
+            'pay_type': 'wechat_pay',
+            'opaytype': ompaytype,
             # 'tscode': tscode_list,
             'args': pay_args,
             'redirect': redirect
@@ -176,9 +176,9 @@ class COrder():
         if not is_user():
             raise AuthorityError
 
-        usid = self._current_user().USid
+        usid = getattr(request, 'user').id
         order_main = OrderMain.query.filter(
-            OrderMain.OMid == omid, OrderMain.USid == usid, OrderMain.isdelete == false).first_('指定订单不存在')
+            OrderMain.OMid == omid, OrderMain.USid == usid, OrderMain.isdelete == false()).first_('指定订单不存在')
         # if is_supplizer() and order_main.PRcreateId != usid:
         #     raise AuthorityError()
         # if not is_admin() and order_main.USid != usid:
@@ -243,7 +243,7 @@ class COrder():
             om.fill('usname', user_info[1])
             om.fill('USheader', user_info[2])
 
-            return Success(data=omlist)
+        return Success(data=omlist)
 
     def get(self):
         data = parameter_required('omid')
@@ -263,15 +263,15 @@ class COrder():
         res = [{'omstatus': k,
                 'omstatus_en': OrderStatus(k).name,
                 'omstatus_zh': OrderStatus(k).zh_value
-                } for k in (OrderStatus.pending.value, OrderStatus.has_won.value,
-                            OrderStatus.completed.value, OrderStatus.accomplish.value,
+                } for k in (OrderStatus.wait_pay.value, OrderStatus.pending.value,
+                            OrderStatus.completed.value, OrderStatus.cancle.value,
                             OrderStatus.not_won.value,)]
         return Success(data=res)
 
     def list_trade(self):
         """门票购买记录"""
-        if not is_admin():
-            raise StatusError('用户无权限')
+        # if not is_admin():
+        #     raise StatusError('用户无权限')
         args = parameter_required('prid')
         prid = args.get('prid')
         product = Product.query.filter(Product.isdelete == false(), Product.PRid == prid).first_('无信息')
@@ -288,9 +288,9 @@ class COrder():
                         'usheader': usinfo[1],
                         'omid': to.OMid,
                         'createtime': to.createtime,
-                        'omstatus': to.OMStatus,
+                        'omstatus': to.OMstatus,
                         'omintegralpayed': to.OMintegralpayed,
-                        'omstatus_zh': OrderStatus(to.OMStatus).zh_value
+                        'omstatus_zh': OrderStatus(to.OMstatus).zh_value
                         })
         trade_num, award_num = map(lambda x: db.session.query(
             func.count(OrderMain.OMid)).filter(
@@ -602,6 +602,6 @@ class COrder():
             # 库存修改
             product = Product.query.filter(Product.PRid == order_main.PRid, Product.isdelete == false()).first()
             if product:
-                product.PRNum += 1
+                product.PRnum += 1
                 db.session.add(product)
 
