@@ -10,6 +10,7 @@ class AUser(Resource):
         apis = {
             'get_home': self.cuser.get_home,
             'secret_usid': self.cuser.get_secret_usid,
+            'my_wallet': self.cuser.my_wallet,
         }
         return apis
 

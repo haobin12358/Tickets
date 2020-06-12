@@ -1,5 +1,5 @@
 import os
-import datetime
+from datetime import datetime
 import re
 import uuid
 
@@ -11,7 +11,7 @@ from tickets.config.enums import MiniUserGrade
 from tickets.config.secret import MiniProgramAppId, MiniProgramAppSecret
 from tickets.control.BaseControl import BaseController
 from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError, NotFound
-from tickets.extensions.interface.user_interface import token_required
+from tickets.extensions.interface.user_interface import token_required, phone_required
 from tickets.extensions.params_validates import parameter_required, validate_arg
 from tickets.extensions.register_ext import db, mp_miniprogram, qiniu_oss
 from tickets.extensions.request_handler import _get_user_agent
@@ -211,7 +211,7 @@ class CUser(object):
 
     def _get_path(self, fold):
         """获取服务器上文件路径"""
-        time_now = datetime.datetime.now()
+        time_now = datetime.now()
         year = str(time_now.year)
         month = str(time_now.month)
         day = str(time_now.day)
@@ -425,3 +425,54 @@ class CUser(object):
         # user.fill('uswithdrawal', uswithdrawal or 0)
         #
         # user.fill('usexpect', float('%.2f' % uc_total))
+
+    @phone_required
+    def my_wallet(self):
+        """我的钱包页（消费记录、提现记录）"""
+        args = request.args.to_dict()
+        date, option = args.get('date'), args.get('option')
+        user = User.query.filter(User.isdelete == false(), User.USid == getattr(request, 'user').id).first_('请重新登录')
+        if date and not re.match(r'^20\d{2}-\d{2}$', str(date)):
+            raise ParamsError('date 格式错误')
+        year, month = str(date).split('-') if date else (datetime.now().year, datetime.now().month)
+
+        # todo mock data
+        transactions = [{
+            "amount": "-¥3.05",
+            "time": "2019-07-01 16:38:29",
+            "title": "西安-宝鸡-咸阳·二日"
+        }]
+        total = '-3.05'
+        uwcash = 11
+
+        if option == 'expense':  # 消费记录
+            # transactions, total = self._get_transactions(user, year, month, args)
+            pass
+        elif option == 'withdraw':  # 提现记录
+            # transactions, total = self._get_withdraw(user, year, month)
+            pass
+        elif option == 'commission':  # 佣金收入
+            pass
+        else:
+            raise ParamsError('type 参数错误')
+        # user_wallet = UserWallet.query.filter(UserWallet.isdelete == false(), UserWallet.USid == user.USid).first()
+        # if user_wallet:
+        #     uwcash = user_wallet.UWcash
+        # else:
+        #     with db.auto_commit():
+        #         user_wallet_instance = UserWallet.create({
+        #             'UWid': str(uuid.uuid1()),
+        #             'USid': user.USid,
+        #             'CommisionFor': ApplyFrom.user.value,
+        #             'UWbalance': Decimal('0.00'),
+        #             'UWtotal': Decimal('0.00'),
+        #             'UWcash': Decimal('0.00'),
+        #             'UWexpect': Decimal('0.00')
+        #         })
+        #         db.session.add(user_wallet_instance)
+        #         uwcash = 0
+        response = {'uwcash': uwcash,
+                    'transactions': transactions,
+                    'total': total
+                    }
+        return Success(data=response).get_body(total_count=1, total_page=1)

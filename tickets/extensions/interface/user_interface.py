@@ -1,5 +1,8 @@
 from flask import request
-from ...extensions.error_response import AuthorityError, TokenError
+from sqlalchemy import false
+
+from ...extensions.error_response import AuthorityError, TokenError, NeedPhone
+from ...models import User
 
 
 def is_anonymous():
@@ -21,6 +24,15 @@ def is_supplizer():
     return hasattr(request, 'user') and request.user.model == 'Supplizer'
 
 
+def binded_phone():
+    """是否已绑定手机号"""
+    # return common_user() and getattr(get_current_user(), 'UStelphone', False)
+    if is_user():
+        return getattr(User.query.filter(User.isdelete == false(), User.USid == getattr(request, 'user').id).first(),
+                       'UStelephone', False)
+    raise TokenError()
+
+
 def token_required(func):
     def inner(self, *args, **kwargs):
         if not is_anonymous():
@@ -35,5 +47,14 @@ def admin_required(func):
         if not is_admin():
             raise AuthorityError()
         return func(self, *args, **kwargs)
+
+    return inner
+
+
+def phone_required(func):
+    def inner(self, *args, **kwargs):
+        if binded_phone():
+            return func(self, *args, **kwargs)
+        raise NeedPhone()
 
     return inner
