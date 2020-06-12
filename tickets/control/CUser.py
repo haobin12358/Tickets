@@ -180,17 +180,6 @@ class CUser(object):
             db.session.add(user)
             res_user = user
 
-        # phone_binded_user = User.query.filter(User.isdelete == False,
-        #                                       User.UStelphone == phonenumber,
-        #                                       User.USunionid.is_(None),
-        #                                       User.USopenid1.is_(None)).first()
-        # if phone_binded_user:
-        #     current_app.logger.info('该手机号已存在绑定用户: {}， 删除新用户: {}'.format(phone_binded_user.USid, user.USid))
-        #     phone_binded_user.USunionid = user.USunionid
-        #     phone_binded_user.USopenid1 = user.USopenid1
-        #     user.isdelete = True  # 已有H5绑定手机号的删除小程序新建的用户
-        #     res_user = phone_binded_user
-
         token = usid_to_token(res_user.USid, level=res_user.USlevel, username=res_user.USname)  # 更换token
         response = {'phonenumber': covered_number, 'token': token}
         current_app.logger.info('return_data: {}'.format(response))
