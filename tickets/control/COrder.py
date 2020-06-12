@@ -17,11 +17,11 @@ from tickets.extensions.error_response import ParamsError, StatusError, Authorit
 from tickets.extensions.interface.user_interface import is_user, is_admin
 from tickets.extensions.make_qrcode import qrcodeWithtext
 from tickets.extensions.params_validates import parameter_required
-from tickets.extensions.qiniu.storage import QiniuStorage
 from tickets.extensions.register_ext import db, mini_wx_pay
 from tickets.extensions.success_response import Success
 from tickets.extensions.tasks import add_async_task, auto_cancle_order
 from tickets.extensions.weixin.pay import WeixinPayError
+from tickets.extensions.register_ext import qiniu_oss
 from tickets.models import User, Product, UserWallet, Commision, OrderPay, OrderMain, UserCommission
 
 
@@ -154,7 +154,7 @@ class COrder():
         body = product.PRname[:16] + '...'
         openid = user.USopenid1
         # 30分钟 自动取消
-        add_async_task(auto_cancle_order, now + timedelta(minutes=30), (omid,), conn_id= 'autocancle{}'.format(omid))
+        add_async_task(auto_cancle_order, now + timedelta(minutes=30), (omid,), conn_id='autocancle{}'.format(omid))
         pay_args = self._add_pay_detail(opayno=opayno, body=body, mount_price=mount_price, openid=openid,
                                         opayType=ompaytype, redirect=redirect)
         response = {
@@ -166,6 +166,23 @@ class COrder():
         }
         current_app.logger.info('response = {}'.format(response))
         return Success(data=response)
+
+    def cancle(self):
+        """付款前取消订单"""
+        data = parameter_required(('omid',))
+        omid = data.get('omid')
+        if not is_user():
+            raise AuthorityError
+
+        usid = self._current_user().USid
+        order_main = OrderMain.query.filter(
+            OrderMain.OMid == omid, OrderMain.USid == usid, OrderMain.isdelete == false).first_('指定订单不存在')
+        # if is_supplizer() and order_main.PRcreateId != usid:
+        #     raise AuthorityError()
+        # if not is_admin() and order_main.USid != usid:
+        #     raise NotFound('订单订单不存在')
+        self._cancle(order_main)
+        return Success('取消成功')
 
     def list(self):
         data = parameter_required()
@@ -239,13 +256,6 @@ class COrder():
         om.fill('USheader', user.USheader)
         return Success
 
-    def _fill_ordermain(self, om):
-        om.hide('USid', 'UPperid', 'UPperid2', 'UPperid3', 'PRcreateId', 'OPayno')
-        om.fill('ompayType_zh', PayType(om.OMpayType).zh_value)
-        om.fill('ompayType_eh', PayType(om.OMpayType).name)
-        om.fill('omstatus_zh', OrderStatus(om.OMstatus).zh_value)
-        om.fill('omstatus_eh', OrderStatus(om.OMstatus).name)
-
     def list_omstatus(self):
         """所有试用记录状态类型"""
         res = [{'omstatus': k,
@@ -255,6 +265,13 @@ class COrder():
                             OrderStatus.completed.value, OrderStatus.accomplish.value,
                             OrderStatus.not_won.value,)]
         return Success(data=res)
+
+    def _fill_ordermain(self, om):
+        om.hide('USid', 'UPperid', 'UPperid2', 'UPperid3', 'PRcreateId', 'OPayno')
+        om.fill('ompayType_zh', PayType(om.OMpayType).zh_value)
+        om.fill('ompayType_eh', PayType(om.OMpayType).name)
+        om.fill('omstatus_zh', OrderStatus(om.OMstatus).zh_value)
+        om.fill('omstatus_eh', OrderStatus(om.OMstatus).name)
 
     def _opayno(self):
         opayno = self.wx_pay.nonce_str
@@ -519,16 +536,12 @@ class COrder():
         current_app.logger.info('get basedir {0}'.format(current_app.config['BASEDIR']))
         text = 'prid={}&secret={}'.format(prid, secret_usid)
         current_app.logger.info('get text content {0}'.format(text))
-        access_key = current_app.config.get('QINIU_ACCESS_KEY', '')
-        secret_key = current_app.config.get('QINIU_SECRET_KEY', '')
-        bucket_name = current_app.config.get('QINIU_BUCKET_NAME', '')
-        qiniu = QiniuStorage(access_key, secret_key, bucket_name)
         qrcodeWithtext(text, filename)
 
         # 二维码上传到七牛云
         if API_HOST == 'https://planet.sanbinit.cn':
             try:
-                qiniu.save(data=filename, filename=filedbname[1:])
+                qiniu_oss.save(data=filename, filename=filedbname[1:])
             except Exception as e:
                 current_app.logger.error('二维码转存七牛云失败 ： {}'.format(e))
         return filedbname
@@ -549,21 +562,3 @@ class COrder():
             if product:
                 product.PRNum += 1
                 db.session.add(product)
-
-
-    def cancle(self):
-        """付款前取消订单"""
-        data = parameter_required(('omid',))
-        omid = data.get('omid')
-        if not is_user():
-            raise AuthorityError
-
-        usid = self._current_user().USid
-        order_main = OrderMain.query.filter(
-            OrderMain.OMid == omid, OrderMain.USid == usid, OrderMain.isdelete == false).first_('指定订单不存在')
-        # if is_supplizer() and order_main.PRcreateId != usid:
-        #     raise AuthorityError()
-        # if not is_admin() and order_main.USid != usid:
-        #     raise NotFound('订单订单不存在')
-        self._cancle(order_main)
-        return Success('取消成功')
