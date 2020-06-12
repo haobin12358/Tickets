@@ -6,10 +6,10 @@ from decimal import Decimal
 
 import requests
 from flask import current_app, request
-from sqlalchemy import false
+from sqlalchemy import false, cast, Date
 from tickets.common.default_head import GithubAvatarGenerator
 from tickets.common.id_check import DOIDCheck
-from tickets.config.enums import MiniUserGrade, ApplyFrom, WXLoginFrom
+from tickets.config.enums import MiniUserGrade, ApplyFrom, WXLoginFrom, ActivationTypeEnum
 from tickets.config.secret import MiniProgramAppId, MiniProgramAppSecret
 from tickets.control.BaseControl import BaseController
 from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError, NotFound, \
@@ -23,7 +23,7 @@ from tickets.extensions.token_handler import usid_to_token
 from tickets.extensions.weixin import WeixinLogin
 from tickets.extensions.weixin.mp import WeixinMPError
 from tickets.models import User, SharingParameters, UserLoginTime, UserWallet, ProductVerifier, AddressProvince, \
-    AddressArea, AddressCity, IDCheck, UserMedia
+    AddressArea, AddressCity, IDCheck, UserMedia, UserInvitation
 
 
 class CUser(object):
@@ -101,7 +101,7 @@ class CUser(object):
                             'USunionid': unionid
                             }
         with db.auto_commit():
-
+            isnewguy = ActivationTypeEnum.share_old.value
             if user:
                 usid = user.USid
                 if not user.USwxacode:
@@ -109,6 +109,7 @@ class CUser(object):
                 user.update(user_update_dict)
             else:
                 current_app.logger.info('This is a new guy : {}'.format(userinfo.get('nickName')))
+                isnewguy = ActivationTypeEnum.share_new.value
                 usid = str(uuid.uuid1())
                 user_dict = {
                     'USid': usid,
@@ -128,6 +129,22 @@ class CUser(object):
                     user_dict.setdefault('USsupper3', upperd.USsupper2)
                 user = User.create(user_dict)
             db.session.add(user)
+            if upperd:
+                today = datetime.now().date()
+                uin_exist = UserInvitation.query.filter(
+                    cast(UserInvitation.createtime, Date) == today,
+                    UserInvitation.USInviter == upperd.USid,
+                    UserInvitation.USInvited == usid,
+                ).first()
+                if uin_exist:
+                    current_app.logger.info('{}今天已经邀请过这个人了{}'.format(upperd.USid, usid))
+                else:
+                    uin = UserInvitation.create(
+                        {'UINid': str(uuid.uuid1()), 'USInviter': upperd.USid, 'USInvited': usid,
+                         'UINapi': request.path})
+                    db.session.add(uin)
+                    from .CActivation import CActivation
+                    CActivation.add_activation(isnewguy, upperd.USid, usid)
 
             userloggintime = UserLoginTime.create({"ULTid": str(uuid.uuid1()),
                                                    "USid": usid,
