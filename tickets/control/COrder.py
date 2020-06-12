@@ -8,7 +8,7 @@ from datetime import datetime, date, timedelta
 from decimal import Decimal
 
 from flask import request, current_app
-from sqlalchemy import false, cast, Date
+from sqlalchemy import false, cast, Date, func
 
 from tickets.config.enums import PayType, ProductStatus, UserCommissionStatus, ApplyFrom, OrderStatus
 from tickets.config.http_config import API_HOST
@@ -59,7 +59,7 @@ class COrder():
             else:
                 pp = kwargs.get('pp')
                 pp.update({
-                    'PPpaytime': datetime.now(),
+                    'OPaytime': datetime.now(),
                 })
 
             db.session.add(pp)
@@ -84,7 +84,7 @@ class COrder():
         data = parameter_required()
         prid, ompaytype = data.get('prid'), data.get('ompaytype')
         try:
-            PayType(int(ompaytype))
+            ompaytype = PayType(int(ompaytype)).value
         except (ValueError, AttributeError, TypeError):
             raise ParamsError('支付方式错误')
 
@@ -119,6 +119,8 @@ class COrder():
                 # 活跃分
                 if not user.USrealname:
                     raise StatusError('用户未进行信用认证')
+                if not product.PRtimeLimeted:
+                    raise StatusError('活跃分支持限时商品')
                 mount_price = 0
                 redirect = True
             else:
@@ -132,9 +134,9 @@ class COrder():
                 "USid": user.USid,
                 "PRid": prid,
                 "OMmount": product.PRlinePrice,
-                "OMtrueMount": product.PRtruePrice,
+                "OMtrueMount": mount_price,
                 "OMpayType": ompaytype,
-                "PRcreateId": Product.CreatorId,
+                "PRcreateId": product.CreatorId,
                 "PRname": product.PRname,
                 "PRimg": product.PRimg,
                 "OPnum": 1,  # 目前没有添加数量
@@ -154,12 +156,12 @@ class COrder():
         body = product.PRname[:16] + '...'
         openid = user.USopenid1
         # 30分钟 自动取消
-        add_async_task(auto_cancle_order, now + timedelta(minutes=30), (omid,), conn_id='autocancle{}'.format(omid))
+        # add_async_task(auto_cancle_order, now + timedelta(minutes=30), (omid,), conn_id='autocancle{}'.format(omid))
         pay_args = self._add_pay_detail(opayno=opayno, body=body, mount_price=mount_price, openid=openid,
                                         opayType=ompaytype, redirect=redirect)
         response = {
-            'pay_type': PayType.wechat_pay.name,
-            'opaytype': PayType.wechat_pay.value,
+            'pay_type': 'wechat_pay',
+            'opaytype': ompaytype,
             # 'tscode': tscode_list,
             'args': pay_args,
             'redirect': redirect
@@ -174,9 +176,9 @@ class COrder():
         if not is_user():
             raise AuthorityError
 
-        usid = self._current_user().USid
+        usid = getattr(request, 'user').id
         order_main = OrderMain.query.filter(
-            OrderMain.OMid == omid, OrderMain.USid == usid, OrderMain.isdelete == false).first_('指定订单不存在')
+            OrderMain.OMid == omid, OrderMain.USid == usid, OrderMain.isdelete == false()).first_('指定订单不存在')
         # if is_supplizer() and order_main.PRcreateId != usid:
         #     raise AuthorityError()
         # if not is_admin() and order_main.USid != usid:
@@ -241,7 +243,7 @@ class COrder():
             om.fill('usname', user_info[1])
             om.fill('USheader', user_info[2])
 
-            return Success(data=omlist)
+        return Success(data=omlist)
 
     def get(self):
         data = parameter_required('omid')
@@ -261,10 +263,50 @@ class COrder():
         res = [{'omstatus': k,
                 'omstatus_en': OrderStatus(k).name,
                 'omstatus_zh': OrderStatus(k).zh_value
-                } for k in (OrderStatus.pending.value, OrderStatus.has_won.value,
-                            OrderStatus.completed.value, OrderStatus.accomplish.value,
+                } for k in (OrderStatus.wait_pay.value, OrderStatus.pending.value,
+                            OrderStatus.completed.value, OrderStatus.cancle.value,
                             OrderStatus.not_won.value,)]
         return Success(data=res)
+
+    def list_trade(self):
+        """门票购买记录"""
+        # if not is_admin():
+        #     raise StatusError('用户无权限')
+        args = parameter_required('prid')
+        prid = args.get('prid')
+        product = Product.query.filter(Product.isdelete == false(), Product.PRid == prid).first_('无信息')
+        tos = OrderMain.query.filter(
+            OrderMain.isdelete == false(), OrderMain.PRid == prid).order_by(
+            OrderMain.OMintegralpayed.desc(), OrderMain.OMstatus.desc(), OrderMain.createtime.desc()).all_with_page()
+        res = []
+        for to in tos:
+            usinfo = db.session.query(User.USname, User.USheader
+                                      ).filter(User.isdelete == false(), User.USid == to.USid).first()
+            if not usinfo:
+                continue
+            res.append({'usname': usinfo[0],
+                        'usheader': usinfo[1],
+                        'omid': to.OMid,
+                        'createtime': to.createtime,
+                        'omstatus': to.OMstatus,
+                        'omintegralpayed': to.OMintegralpayed,
+                        'omstatus_zh': OrderStatus(to.OMstatus).zh_value
+                        })
+        trade_num, award_num = map(lambda x: db.session.query(
+            func.count(OrderMain.OMid)).filter(
+            OrderMain.isdelete == false(),
+            OrderMain.PRid == prid,
+            OrderMain.OMstatus == x,).scalar() or 0, (
+            OrderStatus.completed.value, OrderStatus.has_won.value))
+        ticket_info = {'prid': product.PRid,
+                       'prname': product.PRname,
+                       'time': '{} - {}'.format(product.PRissueStartTime, product.PRissueEndTime),
+                       'prstatus': product.PRstatus,
+                       'prstatus_zh': ProductStatus(product.PRstatus).zh_value,
+                       'trade_num': '{} / {}'.format(trade_num, product.PRnum),
+                       'award_num': '{} / {}'.format(award_num, product.PRnum)}
+        return Success(data={'product': ticket_info,
+                             'ordermain': res})
 
     def _fill_ordermain(self, om):
         om.hide('USid', 'UPperid', 'UPperid2', 'UPperid3', 'PRcreateId', 'OPayno')
@@ -560,5 +602,6 @@ class COrder():
             # 库存修改
             product = Product.query.filter(Product.PRid == order_main.PRid, Product.isdelete == false()).first()
             if product:
-                product.PRNum += 1
+                product.PRnum += 1
                 db.session.add(product)
+
