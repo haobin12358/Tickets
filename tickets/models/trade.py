@@ -48,6 +48,7 @@ class OrderMain(Base):
     # USCommission2 = Column(DECIMAL(scale=2), comment='二级佣金比')
     # USCommission3 = Column(DECIMAL(scale=2), comment='三级佣金比')
 
+
 class OrderPay(Base):
     """
     付款流水
@@ -77,4 +78,3 @@ class UserCommission(Base):
     PRname = Column(String(255), comment='商品标题')
     PRimg = Column(Text, url=True, comment='商品封面图')
     OMid = Column(String(64), comment='佣金来源订单')
-
