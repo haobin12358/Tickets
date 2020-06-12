@@ -9,7 +9,7 @@ from tickets.common.compress_picture import CompressPicture
 from tickets.extensions.error_response import NotFound, ParamsError, SystemError, TokenError
 from tickets.extensions.params_validates import parameter_required
 from tickets.extensions.success_response import Success
-from tickets.extensions.interface.user_interface import is_anonymous
+from tickets.extensions.interface.user_interface import is_anonymous, token_required
 from tickets.common.video_thumbnail import video2frames
 from tickets.extensions.register_ext import qiniu_oss
 
@@ -170,7 +170,7 @@ class CFile(object):
 
     @staticmethod
     def allowed_folder(folder):
-        return folder if folder in ['index', 'product', 'temp', 'item', 'news', 'category', 'video', 'avatar',
+        return folder if folder in ['product', 'temp', 'item', 'news', 'category', 'video', 'avatar',
                                     'voucher', 'idcard', 'brand', 'activity', 'contract', 'play',
                                     'scenicspot', 'raiders', 'travels', 'essay', 'feedback', 'ticket'] else 'temp'
 
