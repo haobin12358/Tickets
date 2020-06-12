@@ -8,7 +8,8 @@ class AUser(Resource):
 
     def get(self, user):
         apis = {
-            'get_home': self.cuser.get_home,  # 获取个人首页
+            'get_home': self.cuser.get_home,
+            'secret_usid': self.cuser.get_secret_usid,
         }
         return apis
 

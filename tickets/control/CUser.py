@@ -323,6 +323,14 @@ class CUser(object):
         return Success(data={'token': token, 'usname': user.USname})
 
     @token_required
+    def get_secret_usid(self):
+        """获取base64编码后的usid"""
+        secret_usid = self._base_encode(getattr(request, 'user').id)
+        return Success(data={
+            'secret_usid': secret_usid,
+        })
+
+    @token_required
     def get_home(self):
         """获取个人主页信息"""
         user = User.query.filter(User.USid == getattr(request, 'user').id, User.isdelete == false()).first()
