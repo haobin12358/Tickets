@@ -12,7 +12,7 @@ class MiniProgramBanner(Base):
     MPBpicture = Column(Text, nullable=False, comment='图片', url=True)
     MPBsort = Column(Integer, comment='顺序')
     MPBshow = Column(Boolean, default=True, comment='是否展示')
-    MPBposition = Column(Integer, default=0, comment='轮播图位置 0: 首页, 1: 出游')
+    MPBposition = Column(Integer, default=0, comment='轮播图位置 0: 首页')
     contentlink = Column(LONGTEXT, comment='跳转链接')
 
 
