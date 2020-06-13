@@ -22,5 +22,6 @@ class AUser(Resource):
             'update_usinfo': self.cuser.update_usinfo,
             'apply_cash': self.cuser.apply_cash,
             'user_certification': self.cuser.user_certification,
+            'admin_login': self.cuser.admin_login,  # 管理员登录
         }
         return apis

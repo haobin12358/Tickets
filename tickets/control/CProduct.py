@@ -64,6 +64,12 @@ class CProduct(object):
 
             product.fill('countdown', countdown)
         product.fill('prstatus_zh', ProductStatus(product.PRstatus).zh_value)
+        # product.fill('tirules', self._query_rules(RoleType.ticketrole.value))
+        # product.fill('scorerule', self._query_rules(RoleType.activationrole.value))
+        product.fill('tirules', '这是规则fasdfgsdalghasdkjghas')   # todo
+        product.fill('scorerule', '活跃分规则欧文车企佛按动；ghladshglasdh')
+        show_record = True if product.PRstatus == ProductStatus.over.value else False
+        product.fill('show_record', show_record)
         verified = True if is_user() and User.query.filter(User.isdelete == false(),
                                                            User.USid == getattr(request, 'user').id
                                                            ).first().USidentification else False

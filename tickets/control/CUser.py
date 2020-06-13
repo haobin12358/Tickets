@@ -7,9 +7,12 @@ from decimal import Decimal
 import requests
 from flask import current_app, request
 from sqlalchemy import false, cast, Date
+from werkzeug.security import check_password_hash
+
 from tickets.common.default_head import GithubAvatarGenerator
 from tickets.common.id_check import DOIDCheck
-from tickets.config.enums import MiniUserGrade, ApplyFrom, WXLoginFrom, ActivationTypeEnum
+from tickets.config.enums import MiniUserGrade, ApplyFrom, ActivationTypeEnum, UserLoginTimetype, \
+    AdminLevel, AdminStatus
 from tickets.config.secret import MiniProgramAppId, MiniProgramAppSecret
 from tickets.control.BaseControl import BaseController
 from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError, NotFound, \
@@ -23,7 +26,7 @@ from tickets.extensions.token_handler import usid_to_token
 from tickets.extensions.weixin import WeixinLogin
 from tickets.extensions.weixin.mp import WeixinMPError
 from tickets.models import User, SharingParameters, UserLoginTime, UserWallet, ProductVerifier, AddressProvince, \
-    AddressArea, AddressCity, IDCheck, UserMedia, UserInvitation
+    AddressArea, AddressCity, IDCheck, UserMedia, UserInvitation, Admin
 
 
 class CUser(object):
@@ -596,11 +599,39 @@ class CUser(object):
         RE_CHINESE = re.compile(r'^[\u4e00-\u9fa5]{1,8}$')
         return RE_CHINESE.findall(name)
 
+    def get_all_province(self):
+        """获取所有省份信息"""
+        province_list = AddressProvince.query.all()
+        current_app.logger.info('This is to get province list')
+        if not province_list:
+            raise NotFound('未找到省份信息')
+        return Success(data=province_list)
+
+    def get_citys_by_provinceid(self):
+        """获取省份下的城市"""
+        args = parameter_required(('apid',))
+        current_app.logger.info('This to get city, provibceid is {0}'.format(args))
+        provinceid = args.get('apid')
+        city_list = AddressCity.query.filter(AddressCity.APid == provinceid).all()
+        if not city_list:
+            raise NotFound('未找到该省下的城市信息')
+        return Success(data=city_list)
+
+    def get_areas_by_cityid(self):
+        """获取城市下的区县"""
+        args = parameter_required(('acid',))
+        current_app.logger.info('This to get area info, cityid is {0}'.format(args))
+        cityid = args.get('acid')
+        area_list = AddressArea.query.filter(AddressArea.ACid == cityid).all()
+        if not area_list:
+            raise NotFound('未找到该城市下的区县信息')
+        return Success(data=area_list)
+
     @token_required
     def user_certification(self):
         """实名认证"""
         data = parameter_required(('usrealname', 'usidentification'))
-        user = self._get_exist_user((User.USid == getattr(request, 'user').id, ))
+        user = self._get_exist_user((User.USid == getattr(request, 'user').id,))
         if user.USidentification:
             raise ParamsError('已提交过认证')
         usrealname, ustelephone = data.get('usrealname'), data.get('ustelephone')
@@ -691,3 +722,29 @@ class CUser(object):
             IDCheck.IDCerrorCode != 80008,
             IDCheck.isdelete == False
         ).first_()
+
+    def admin_login(self):
+        """管理员登录"""
+        data = parameter_required(('adname', 'adpassword'))
+        admin = Admin.query.filter(Admin.isdelete == false(), Admin.ADname == data.get('adname')).first_('用户不存在')
+
+        # 密码验证
+        if admin and check_password_hash(admin.ADpassword, data.get("adpassword")):
+            current_app.logger.info('管理员登录成功 %s' % admin.ADname)
+            # 创建管理员登录记录
+            ul_instance = UserLoginTime.create({
+                "ULTid": str(uuid.uuid1()),
+                "USid": admin.ADid,
+                "USTip": request.remote_addr,
+                "ULtype": UserLoginTimetype.admin.value,
+                "UserAgent": request.user_agent.string
+            })
+            db.session.add(ul_instance)
+            token = usid_to_token(admin.ADid, 'Admin', admin.ADlevel, username=admin.ADname)
+            admin.fields = ['ADname', 'ADheader', 'ADlevel']
+
+            admin.fill('adlevel', AdminLevel(admin.ADlevel).zh_value)
+            admin.fill('adstatus', AdminStatus(admin.ADstatus).zh_value)
+
+            return Success('登录成功', data={'token': token, "admin": admin})
+        return ParamsError("用户名或密码错误")

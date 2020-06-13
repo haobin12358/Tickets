@@ -58,3 +58,21 @@ def phone_required(func):
         raise NeedPhone()
 
     return inner
+
+
+def get_current_user():
+    usid = request.user.id
+    from ...models import User
+    return User.query.filter(User.USid == usid, User.isdelete == False).first_('用户信息有误')
+
+
+def get_current_admin():
+    adid = request.user.id
+    from ...models import Admin
+    return Admin.query.filter(Admin.ADid == adid, Admin.isdelete == False).first_('用户信息有误')
+
+
+def get_current_supplizer():
+    suid = request.user.id
+    from ...models import Supplizer
+    return Supplizer.query.filter(Supplizer.SUid == suid, Supplizer.isdelete == False).first_('用户信息有误')

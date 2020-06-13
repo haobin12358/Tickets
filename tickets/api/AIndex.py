@@ -9,7 +9,7 @@ class AIndex(Resource):
     def get(self, index):
         apis = {
             'list_mp_banner': self.index.list_mp_banner,
-            'list_linkcontent': self.cindex.list_linkcontent,
+            'list_linkcontent': self.index.list_linkcontent,
         }
         return apis
 

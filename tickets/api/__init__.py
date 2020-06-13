@@ -6,3 +6,4 @@ from .AProduct import *
 from .AOrder import *
 from .ACommision import *
 from .AActivation import *
+from .AAddress import *
