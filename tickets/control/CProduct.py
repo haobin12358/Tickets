@@ -2,20 +2,25 @@ import json
 import uuid
 from datetime import datetime
 from flask import request, current_app
-from sqlalchemy import false, func
+from sqlalchemy import false, func, cast, Date
 
 from tickets.common.playpicture import PlayPicture
-from tickets.config.enums import UserStatus, ProductStatus, ShareType, RoleType
+from tickets.config.enums import UserStatus, ProductStatus, ShareType, RoleType, OrderStatus, PayType, \
+    ActivationTypeEnum
+from tickets.control.CActivation import CActivation
+from tickets.control.CUser import CUser
 from tickets.extensions.error_response import ParamsError, AuthorityError, StatusError
 from tickets.extensions.interface.user_interface import admin_required, is_admin, is_supplizer, phone_required, is_user, \
     token_required
 from tickets.extensions.params_validates import parameter_required, validate_arg, validate_price
 from tickets.extensions.register_ext import db, qiniu_oss
 from tickets.extensions.success_response import Success
-from tickets.models import Supplizer, Product, User, Agreement
+from tickets.models import Supplizer, Product, User, Agreement, OrderMain, UserInvitation, SharingType
 
 
 class CProduct(object):
+    cuser = CUser()
+    cactivation = CActivation()
 
     def list_product(self):
         """商品列表"""
@@ -31,11 +36,11 @@ class CProduct(object):
                                                    Product.PRissueStartTime.asc(),
                                                    Product.createtime.desc()).all_with_page()
         products_fields = ['PRid', 'PRname', 'PRimg', 'PRlinePrice', 'PRtruePrice', 'PRnum', 'PRtimeLimeted',
-                           'PRstatus']
+                           'PRstatus', 'prstatus_zh', 'apply_num', 'PRissueStartTime', 'PRissueEndTime',
+                           'PRuseStartTime', 'PRuseEndTime']
         for product in products:
+            self._fill_product(product)
             product.fields = products_fields
-            product.fill('prstatus_zh', ProductStatus(product.PRstatus).zh_value)
-            product.fill('apply_num', '22')  # todo 添加申请人数
         return Success(data=products)
 
     def get_product(self):
@@ -43,20 +48,22 @@ class CProduct(object):
         args = parameter_required(('prid',))
         prid = args.get('prid')
         secret_usid = args.get('secret_usid')
+        if secret_usid:  # 创建邀请记录
+            self._invitation_record(secret_usid, args)
         product = Product.query.filter(Product.isdelete == false(), Product.PRid == prid).first_('未找到商品信息')
         self._fill_product(product)
         return Success(data=product)
 
     def _fill_product(self, product):
         product.hide('CreatorId', 'CreatorType', 'SUid')
+        product.fill('prstatus_zh', ProductStatus(product.PRstatus).zh_value)
         now = datetime.now()
+        countdown = None
         if product.PRtimeLimeted:
             if product.PRstatus == ProductStatus.ready.value and product.PRissueStartTime > now:  # 距抢票开始倒计时
                 countdown = product.PRissueStartTime - now
             elif product.PRstatus == ProductStatus.active.value and product.PRissueEndTime > now:  # 距抢票结束倒计时
                 countdown = product.PRissueEndTime - now
-            else:
-                countdown = None
             if countdown:
                 hours = str(countdown.days * 24 + (countdown.seconds // 3600))
                 minutes = str((countdown.seconds % 3600) // 60)
@@ -64,25 +71,81 @@ class CProduct(object):
                 countdown = "{}:{}:{}".format('0' + hours if len(hours) == 1 else hours,
                                               '0' + minutes if len(minutes) == 1 else minutes,
                                               '0' + seconds if len(seconds) == 1 else seconds)
-
-            product.fill('countdown', countdown)
+                # product.fill('triptime', '{} - {}'.format(product.PRuseStartTime.strftime("%Y/%m/%d %H:%M:%S"),
+                #                                           product.PRuseEndTime.strftime("%Y/%m/%d %H:%M:%S")))
+        product.fill('countdown', countdown)
         product.fill('prstatus_zh', ProductStatus(product.PRstatus).zh_value)
+        product.fill('interrupt', False if product.PRstatus < ProductStatus.interrupt.value else True)
         product.fill('tirules', self._query_rules(RoleType.ticketrole.value))
         product.fill('scorerule', self._query_rules(RoleType.activationrole.value))
+        product.fill('apply_num', self._query_award_num(product))
         show_record = True if product.PRstatus == ProductStatus.over.value else False
         product.fill('show_record', show_record)
         verified = True if is_user() and User.query.filter(User.isdelete == false(),
                                                            User.USid == getattr(request, 'user').id
                                                            ).first().USidentification else False
-        product.fill('verified', verified)
+        product.fill('verified', verified)  # 是否已信用认证
         product.fill('position', {'tiaddress': product.address,
                                   'longitude': product.longitude,
                                   'latitude': product.latitude})
+        traded = False
+        if is_user() and product.PRtimeLimeted:
+            traded = bool(self._query_traded(product.PRid, getattr(request, 'user').id))
+        product.fill('traded', traded)  # 打开限时商品时检测是否已购买
+
+    def _invitation_record(self, secret_usid, args):
+        try:
+            superid = self.cuser._base_decode(secret_usid)
+            current_app.logger.info('secret_usid --> superid {}'.format(superid))
+            if is_user() and superid != getattr(request, 'user').id:
+                with db.auto_commit():
+                    today = datetime.now().date()
+                    uin_exist = UserInvitation.query.filter(
+                        cast(UserInvitation.createtime, Date) == today,
+                        UserInvitation.USInviter == superid,
+                        UserInvitation.USInvited == getattr(request, 'user').id,
+                    ).first()
+                    if uin_exist:
+                        current_app.logger.info('{}今天已经邀请过这个人了{}'.format(superid, getattr(request, 'user').id))
+                        return
+                    uin = UserInvitation.create({
+                        'UINid': str(uuid.uuid1()),
+                        'USInviter': superid,
+                        'USInvited': getattr(request, 'user').id,
+                        'UINapi': request.path
+                    })
+                    current_app.logger.info('已创建邀请记录')
+                    db.session.add(uin)
+                    db.session.add(SharingType.create({
+                        'STid': str(uuid.uuid1()),
+                        'USid': superid,
+                        'STtype': args.get('sttype', 0)
+                    }))
+                    self.cactivation.add_activation(
+                        ActivationTypeEnum.share_old.value, superid, getattr(request, 'user').id)
+        except Exception as e:
+            current_app.logger.info('secret_usid 记录失败 error = {}'.format(e))
 
     @staticmethod
     def _query_rules(ruletype):
         return db.session.query(Agreement.AMcontent).filter(Agreement.isdelete == false(),
                                                             Agreement.AMtype == ruletype).scalar()
+
+    @staticmethod
+    def _query_award_num(product, filter_status=None):
+        if not filter_status:
+            filter_status = (OrderMain.OMstatus >= OrderStatus.pending.value,)
+        count = db.session.query(func.count(OrderMain.OMid)
+                                 ).filter(OrderMain.isdelete == false(),
+                                          OrderMain.PRid == product.PRid,
+                                          *filter_status
+                                          ).scalar() or 0
+        return count
+
+    @staticmethod
+    def _query_traded(prid, usid):
+        return OrderMain.query.filter(OrderMain.isdelete == false(), OrderMain.PRid == prid, OrderMain.USid == usid,
+                                      OrderMain.OMpayType != PayType.cash.value).first()
 
     @token_required
     def create_product(self):

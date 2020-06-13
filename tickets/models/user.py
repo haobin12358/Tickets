@@ -204,6 +204,14 @@ class SharingParameters(Base):
     SPSname = Column(String(30), comment='分享的参数名 如: secret_usid, plid')
 
 
+class SharingType(Base):
+    """分享类型"""
+    __tablename__ = 'SharingType'
+    STid = Column(String(64), primary_key=True)
+    USid = Column(String(64), comment='')
+    STtype = Column(Integer, default=0, comment='分享类型')
+
+
 class Admin(Base):
     """
     管理员
