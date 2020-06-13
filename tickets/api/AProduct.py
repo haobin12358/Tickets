@@ -17,5 +17,6 @@ class AProduct(Resource):
     def post(self, product):
         apis = {
             'verify': self.product.product_verified,
+            'create': self.product.create_product,
         }
         return apis

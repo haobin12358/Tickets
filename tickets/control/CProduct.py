@@ -7,7 +7,8 @@ from sqlalchemy import false, func
 from tickets.common.playpicture import PlayPicture
 from tickets.config.enums import UserStatus, ProductStatus, ShareType
 from tickets.extensions.error_response import ParamsError, AuthorityError, StatusError
-from tickets.extensions.interface.user_interface import admin_required, is_admin, is_supplizer, phone_required, is_user
+from tickets.extensions.interface.user_interface import admin_required, is_admin, is_supplizer, phone_required, is_user, \
+    token_required
 from tickets.extensions.params_validates import parameter_required, validate_arg, validate_price
 from tickets.extensions.register_ext import db, qiniu_oss
 from tickets.extensions.success_response import Success
@@ -47,7 +48,7 @@ class CProduct(object):
         return Success(data=product)
 
     def _fill_product(self, product):
-        product.hide('CreatorId', 'CreatorType', 'SUid', 'address', 'longitude', 'latitude')
+        product.hide('CreatorId', 'CreatorType', 'SUid')
         now = datetime.now()
         if product.PRtimeLimeted:
             if product.PRstatus == ProductStatus.ready.value and product.PRissueStartTime > now:  # 距抢票开始倒计时
@@ -80,6 +81,7 @@ class CProduct(object):
                                   'longitude': product.longitude,
                                   'latitude': product.latitude})
 
+    @token_required
     def create_product(self):
         """创建商品"""
         if not (is_admin or is_supplizer):
@@ -181,10 +183,10 @@ class CProduct(object):
 
     def _validate_ticket_param(self, data):
         valid_dict = {'prname': '商品名称', 'primg': '封面图', 'prlineprice': '原价', 'prtrueprice': '现价',
-                      'suid': '供应商',
+                      'suid': '供应商', 'prtimelimeted': '是否为限时商品',
                       'prnum': '数量', 'prdetails': '详情', 'prbanner': '轮播图', 'address': '定位地点'
                       }
-        prtimelimeted = int(data.get('prtimelimeted'), 0)
+        prtimelimeted = data.get('prtimelimeted') or 0
         if prtimelimeted:
             valid_dict.update({'prissuestarttime': '发放开始时间',
                                'prissueendtime': '发放结束时间',
@@ -213,7 +215,7 @@ class CProduct(object):
                                                (prusestarttime, pruseendtime))
             if prusestarttime < now:
                 raise ParamsError('使用开始时间应大于现在时间')
-            if prusestarttime < pruseendtime:
+            if prusestarttime < prissueendtime:
                 raise ParamsError('使用开始时间不能小于发放结束时间')
             if pruseendtime <= prusestarttime:
                 raise ParamsError('使用结束时间应大于开始时间')
