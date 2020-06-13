@@ -10,7 +10,7 @@ class AProduct(Resource):
         apis = {
             'list': self.product.list_product,
             'get': self.product.get_product,
-            'get_promotion': self.cticket.get_promotion,
+            'get_promotion': self.product.get_promotion,
         }
         return apis
 

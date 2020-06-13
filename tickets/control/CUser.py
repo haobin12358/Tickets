@@ -412,10 +412,10 @@ class CUser(object):
         user.fill('usarea_info', usarea_info)
         user.fill('usarea_str', '-'.join(map(lambda x: address[x], (1, 3, 5))) if address else '')
 
-        user.fill('product_verifier', (False if not user.UStelephone else
-                                       True if ProductVerifier.query.filter(ProductVerifier.isdelete == false(),
-                                                                            ProductVerifier.PVphone == user.UStelephone
-                                                                            ).first() else False))
+        user.fill('ticketverifier', (False if not user.UStelephone else
+                                     True if ProductVerifier.query.filter(ProductVerifier.isdelete == false(),
+                                                                          ProductVerifier.PVphone == user.UStelephone
+                                                                          ).first() else False))
         return Success('获取用户信息成功', data=user)
 
     def __user_fill_uw_total(self, user):
@@ -646,6 +646,17 @@ class CUser(object):
         with db.auto_commit():
             res = self.check_idcode(data, user)
         return res
+
+    @phone_required
+    def identification(self):
+        user = User.query.filter_by_(USid=getattr(request, 'user').id).first_('请重新登录')
+        if not user.USidentification:
+            return Success(data={})
+        response = {'usrealname': user.USrealname,
+                    'ustelephone': user.UStelephone,
+                    'usidentification': user.USidentification
+                    }
+        return Success(data=response)
 
     def check_idcode(self, data, user):
         """验证用户身份姓名是否正确"""
