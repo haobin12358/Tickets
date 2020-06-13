@@ -12,6 +12,7 @@ class AUser(Resource):
             'secret_usid': self.cuser.get_secret_usid,
             'my_wallet': self.cuser.my_wallet,
             'identification': self.cuser.identification,
+            'get_admin_list': self.cuser.get_admin_list,  # 获取管理员列表
         }
         return apis
 
@@ -24,5 +25,8 @@ class AUser(Resource):
             'apply_cash': self.cuser.apply_cash,
             'user_certification': self.cuser.user_certification,
             'admin_login': self.cuser.admin_login,  # 管理员登录
+            'add_admin_by_superadmin': self.cuser.add_admin_by_superadmin,  # 添加管理员
+            'update_admin': self.cuser.update_admin,  # 更新管理员信息
+            'update_admin_password': self.cuser.update_admin_password,  # 修改管理员密码
         }
         return apis

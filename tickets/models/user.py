@@ -242,6 +242,17 @@ class AdminActions(Base):
     AAkey = Column(String(255), comment='操作数据表的主键的值')
 
 
+class AdminNotes(Base):
+    """
+    管理员变更记录
+    """
+    __tablename__ = 'AdminNotes'
+    ANid = Column(String(64), primary_key=True)
+    ADid = Column(String(64), nullable=False, comment='管理员id')
+    ANaction = Column(Text, comment='变更动作')
+    ANdoneid = Column(String(64), comment='修改人id')
+
+
 class Supplizer(Base):
     """供应商"""
     __tablename__ = 'Supplizer'
