@@ -662,6 +662,13 @@ class OrderStatus(Enum):
     accomplish = 30, '已完成'
 
 
+class RoleType(Enum):
+    agreement = 0, '转让协议'
+    discountrefund = 1, '活动退款协议'
+    ticketrole = 2, '门票规则'
+    activationrole = 3, '活跃分获取规则'
+
+
 class TicketDepositType(Enum):
     """票务押金类型"""
     grab = 0, '抢票押金'

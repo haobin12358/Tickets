@@ -11,6 +11,7 @@ class AProduct(Resource):
             'list': self.product.list_product,
             'get': self.product.get_product,
             'get_promotion': self.product.get_promotion,
+            'list_role': self.product.list_role,
         }
         return apis
 
@@ -18,5 +19,6 @@ class AProduct(Resource):
         apis = {
             'verify': self.product.product_verified,
             'create': self.product.create_product,
+            'update_role': self.product.update_role,
         }
         return apis

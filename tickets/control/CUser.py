@@ -394,7 +394,7 @@ class CUser(object):
         if not user:
             raise TokenError('请重新登录')
         user.fields = ['USname', 'USname', 'USgender', 'USheader', 'USwxacode']
-        user.fill('usbirthday', str(user.USbirthday)[:10])
+        user.fill('usbirthday', str(user.USbirthday)[:10] or '')
         user.fill('usminilevel', MiniUserGrade(user.USminiLevel).zh_value)
         self.__user_fill_uw_total(user)
         user.fill('verified', bool(user.USidentification))  # 是否信用认证

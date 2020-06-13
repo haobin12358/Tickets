@@ -5,14 +5,14 @@ from flask import request, current_app
 from sqlalchemy import false, func
 
 from tickets.common.playpicture import PlayPicture
-from tickets.config.enums import UserStatus, ProductStatus, ShareType
+from tickets.config.enums import UserStatus, ProductStatus, ShareType, RoleType
 from tickets.extensions.error_response import ParamsError, AuthorityError, StatusError
 from tickets.extensions.interface.user_interface import admin_required, is_admin, is_supplizer, phone_required, is_user, \
     token_required
 from tickets.extensions.params_validates import parameter_required, validate_arg, validate_price
 from tickets.extensions.register_ext import db, qiniu_oss
 from tickets.extensions.success_response import Success
-from tickets.models import Supplizer, Product, User
+from tickets.models import Supplizer, Product, User, Agreement
 
 
 class CProduct(object):
@@ -67,10 +67,8 @@ class CProduct(object):
 
             product.fill('countdown', countdown)
         product.fill('prstatus_zh', ProductStatus(product.PRstatus).zh_value)
-        # product.fill('tirules', self._query_rules(RoleType.ticketrole.value))
-        # product.fill('scorerule', self._query_rules(RoleType.activationrole.value))
-        product.fill('tirules', '这是规则fasdfgsdalghasdkjghas')  # todo
-        product.fill('scorerule', '活跃分规则欧文车企佛按动；ghladshglasdh')
+        product.fill('tirules', self._query_rules(RoleType.ticketrole.value))
+        product.fill('scorerule', self._query_rules(RoleType.activationrole.value))
         show_record = True if product.PRstatus == ProductStatus.over.value else False
         product.fill('show_record', show_record)
         verified = True if is_user() and User.query.filter(User.isdelete == false(),
@@ -80,6 +78,11 @@ class CProduct(object):
         product.fill('position', {'tiaddress': product.address,
                                   'longitude': product.longitude,
                                   'latitude': product.latitude})
+
+    @staticmethod
+    def _query_rules(ruletype):
+        return db.session.query(Agreement.AMcontent).filter(Agreement.isdelete == false(),
+                                                            Agreement.AMtype == ruletype).scalar()
 
     @token_required
     def create_product(self):
@@ -327,3 +330,28 @@ class CProduct(object):
             'promotion_path': promotion_path,
             'scene': scene
         })
+
+    @staticmethod
+    def list_role():
+        return Success(data=Agreement.query.filter_by(isdelete=False).order_by(Agreement.AMtype.asc()).all())
+
+    @admin_required
+    def update_role(self):
+        data = parameter_required('amtype')
+        # amtype = int(data.get('amtype', 0) or 0)
+        with db.auto_commit():
+            amtype = self._check_roletype(data.get('amtype', 0))
+            role = Agreement.query.filter_by(AMtype=amtype, isdelete=False).first()
+            if not role:
+                raise ParamsError('规则失效')
+            role.AMcontent = data.get('amcontent')
+        return Success('更新成功')
+
+    def _check_roletype(self, amtype):
+        try:
+            amtype_ = int(amtype or 0)
+            amtype_ = RoleType(amtype_).value
+            return amtype_
+        except:
+            current_app.logger.info('非法类型 {}'.format(amtype))
+            raise ParamsError('规则不存在')

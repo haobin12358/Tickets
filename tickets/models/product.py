@@ -28,7 +28,6 @@ class Product(Base):
     address = Column(Text, comment='游玩场所位置')
 
 
-
 class Activation(Base):
     """
     活跃度
@@ -80,3 +79,11 @@ class ProductVerifier(Base):
     SUid = Column(String(64), comment='供应商')
     PVphone = Column(String(13), nullable=False)
 
+
+class Agreement(Base):
+    """规则/协议"""
+    __tablename__ = 'Agreement'
+    AMid = Column(String(64), primary_key=True)
+    AMcontent = Column(Text, comment='协议内容')
+    AMtype = Column(Integer, default=0, comment='协议类型 0:转让协议 1: 退款规则 2：门票规则 3：活跃分规则')
+    AMname = Column(String(256), comment='规则名')
