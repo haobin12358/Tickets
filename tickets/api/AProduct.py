@@ -19,6 +19,7 @@ class AProduct(Resource):
         apis = {
             'verify': self.product.product_verified,
             'create': self.product.create_product,
+            'update': self.product.update_product,
             'update_role': self.product.update_role,
         }
         return apis

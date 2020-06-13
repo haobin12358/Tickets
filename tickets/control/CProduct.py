@@ -178,9 +178,11 @@ class CProduct(object):
         # self.BaseAdmin.create_action(AdminActionS.insert.value, 'Ticket', ticket.TIid)
         return Success('创建成功', data={'prid': product.PRid})
 
-    @admin_required
+    @token_required
     def update_product(self):
         """编辑商品"""
+        if not (is_admin or is_supplizer):
+            raise AuthorityError('当前用户无权进行该操作')
         data = parameter_required('prid')
         product = Product.query.filter(Product.isdelete == false(),
                                        Product.PRid == data.get('prid')).first_('未找到该商品信息')
@@ -191,29 +193,18 @@ class CProduct(object):
             if data.get('delete'):
                 if product.PRstatus == ProductStatus.active.value:
                     raise ParamsError('无法直接删除正在发放中的商品')
-                # if TicketsOrder.query.filter(TicketsOrder.isdelete == false(),
-                #                              TicketsOrder.TSOstatus != TicketsOrderStatus.not_won.value,
-                #                              TicketsOrder.TIid == ticket.TIid).first():
-                #     raise StatusError('暂时无法直接删除已产生购买记录的门票')
-                # ticket.update({'isdelete': True})
-                # TicketLinkage.query.filter(TicketLinkage.isdelete == false(),
-                #                            TicketLinkage.TIid == ticket.TIid).delete_(synchronize_session=False)
+                if OrderMain.query.filter(OrderMain.isdelete == false(),
+                                          OrderMain.OMstatus > OrderStatus.not_won.value,
+                                          OrderMain.PRid == product.PRid).first():
+                    raise StatusError('暂时无法直接删除已产生购买记录的商品')
+                product.update({'isdelete': True})
                 # self._cancle_celery_task('start_ticket{}'.format(ticket.TIid))
                 # self._cancle_celery_task('end_ticket{}'.format(ticket.TIid))
                 # self.BaseAdmin.create_action(AdminActionS.delete.value, 'Ticket', ticket.TIid)
-            # elif data.get('interrupt'):
-            # if ticket.TIstatus > TicketStatus.active.value:
-            #     raise StatusError('该状态下无法中止')
-            # if ticket.TIstatus == TicketStatus.active.value:  # 抢票中的退押金
-            #     current_app.logger.info('interrupt active ticket')
-            #     ticket_orders = TicketsOrder.query.filter(
-            #         TicketsOrder.isdelete == false(),
-            #         TicketsOrder.TIid == ticket.TIid,
-            #         TicketsOrder.TSOstatus == TicketsOrderStatus.pending.value,
-            #         TicketsOrder.TSOtype != TicketPayType.cash.value).all()
-            #     row_count = self._deposit_refund(ticket_orders, ticket)  # 活动临时中断，除购买外全退钱
-            #     current_app.logger.info('共退款{}条记录'.format(row_count))
-            # ticket.update({'TIstatus': TicketStatus.interrupt.value})
+            elif data.get('interrupt'):
+                if product.PRstatus > ProductStatus.active.value:
+                    raise StatusError('该状态下无法中止')
+                product.update({'PRstatus': ProductStatus.interrupt.value})
             # self._cancle_celery_task('start_ticket{}'.format(ticket.TIid))
             # self._cancle_celery_task('end_ticket{}'.format(ticket.TIid))
             else:
@@ -226,24 +217,20 @@ class CProduct(object):
                                      'PRstatus': ProductStatus.ready.value if product_dict.get(
                                          'PRtimeLimeted') else ProductStatus.active.value
                                      })
-            # todo
-
-            #     if ticket.TIstatus == TicketStatus.interrupt.value:  # 中止的情况
-            #         current_app.logger.info('edit interrupt ticket')
-            #         ticket.update(ticket_dict)
-            #         TicketLinkage.query.filter(TicketLinkage.isdelete == false(),
-            #                                    TicketLinkage.TIid == ticket.TIid).delete_()  # 删除原来的关联
-            #     else:  # 已结束的情况，重新发起
-            #         current_app.logger.info('edit ended ticket')
-            #         ticket_dict.update({'TIid': str(uuid.uuid1()),
-            #                             'ADid': getattr(request, 'user').id})
-            #         ticket = Ticket.create(ticket_dict)
-            #     self._cancle_celery_task('start_ticket{}'.format(ticket.TIid))
-            #     self._cancle_celery_task('end_ticket{}'.format(ticket.TIid))
-            #     self._create_celery_task(ticket.TIid, ticket_dict.get('TIstartTime'))
-            #     self._create_celery_task(ticket.TIid, ticket_dict.get('TIendTime'), start=False)
-            # instance_list.append(ticket)
-            # db.session.add_all(instance_list)
+                # todo
+                if product.PRstatus == ProductStatus.interrupt.value:  # 中止的情况
+                    current_app.logger.info('edit interrupt ticket')
+                    product.update(product_dict)
+                else:  # 已结束的情况，重新发起
+                    current_app.logger.info('edit ended ticket')
+                    product_dict.update({'PRid': str(uuid.uuid1()),
+                                         'CreatorId': getattr(request, 'user').id})
+                    product = Product.create(product_dict)
+                # self._cancle_celery_task('start_ticket{}'.format(ticket.TIid))
+                # self._cancle_celery_task('end_ticket{}'.format(ticket.TIid))
+                # self._create_celery_task(ticket.TIid, ticket_dict.get('TIstartTime'))
+                # self._create_celery_task(ticket.TIid, ticket_dict.get('TIendTime'), start=False)
+            db.session.add(product)
             # self.BaseAdmin.create_action(AdminActionS.update.value, 'Ticket', ticket.TIid)
         return Success('编辑成功', data={'prid': product.PRid})
 
