@@ -316,6 +316,14 @@ class COrder():
         om.fill('ompayType_eh', PayType(om.OMpayType).name)
         om.fill('omstatus_zh', OrderStatus(om.OMstatus).zh_value)
         om.fill('omstatus_eh', OrderStatus(om.OMstatus).name)
+        prtimelimeted = False
+        product = Product.query.filter(Product.PRid == om.PRid).first()
+        if product and product.PRtimeLimeted:
+            prtimelimeted = True
+            om.fill('triptime', '{} - {}'.format(product.PRuseStartTime.strftime("%Y/%m/%d %H:%M:%S"),
+                                                 product.PRuseEndTime.strftime("%Y/%m/%d %H:%M:%S")))
+
+        om.fill('prtimelimeted', prtimelimeted)
 
     def _opayno(self):
         opayno = self.wx_pay.nonce_str
