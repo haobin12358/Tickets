@@ -32,6 +32,7 @@ class CProduct(object):
         for product in products:
             product.fields = products_fields
             product.fill('prstatus_zh', ProductStatus(product.PRstatus).zh_value)
+            product.fill('apply_num', '22')  # todo 添加申请人数
         return Success(data=products)
 
     def get_product(self):
@@ -63,8 +64,6 @@ class CProduct(object):
 
             product.fill('countdown', countdown)
         product.fill('prstatus_zh', ProductStatus(product.PRstatus).zh_value)
-        # product.fill('scorerule', self._query_rules(RoleType.activationrole.value))
-        # ticket.fill('ticategory', json.loads(ticket.TIcategory))  # 2.0版多余
         verified = True if is_user() and User.query.filter(User.isdelete == false(),
                                                            User.USid == getattr(request, 'user').id
                                                            ).first().USidentification else False
