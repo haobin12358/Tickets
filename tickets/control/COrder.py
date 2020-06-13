@@ -14,7 +14,7 @@ from tickets.config.enums import PayType, ProductStatus, UserCommissionStatus, A
 from tickets.config.http_config import API_HOST
 from tickets.config.timeformat import format_for_web_second, format_forweb_no_HMS
 from tickets.extensions.error_response import ParamsError, StatusError, AuthorityError
-from tickets.extensions.interface.user_interface import is_user, is_admin
+from tickets.extensions.interface.user_interface import is_user, is_admin, token_required
 from tickets.extensions.make_qrcode import qrcodeWithtext
 from tickets.extensions.params_validates import parameter_required
 from tickets.extensions.register_ext import db, mini_wx_pay
@@ -93,17 +93,17 @@ class COrder():
 
         user = self._current_user('请重新登录')
         opayno = self._opayno()
-        # instance_list, tscode_list = [], []
         now = datetime.now()
         product = Product.query.filter(Product.PRid == prid, Product.PRstatus == ProductStatus.active.value,
                                        Product.isdelete == false()).first_('商品已下架')
 
-        starttime = self._check_time(product.PRissueStartTime)
-        endtime = self._check_time(product.PRissueEndTime)
-        if starttime and now < starttime:
-            raise StatusError('商品未到发放时间')
-        if endtime and now > endtime:
-            raise StatusError('商品已过发放时间')
+        if product.PRtimeLimeted:
+            starttime = self._check_time(product.PRissueStartTime)
+            endtime = self._check_time(product.PRissueEndTime)
+            if starttime and now < starttime:
+                raise StatusError('商品未到发放时间')
+            if endtime and now > endtime:
+                raise StatusError('商品已过发放时间')
         trade = self._query_traded(prid, user.USid)  # 直购不限制
         redirect = False
         omid = str(uuid.uuid1())
@@ -196,7 +196,8 @@ class COrder():
 
             try:
                 omstatus = OrderStatus(int(str(omstatus))).value
-            except:
+            except ValueError:
+                current_app.logger.error('omstatus error')
                 omstatus = OrderStatus.pending.value
             filter_args.append(OrderMain.USid == user.USid)
             filter_args.append(OrderMain.OMstatus == omstatus)
@@ -245,17 +246,18 @@ class COrder():
 
         return Success(data=omlist)
 
+    @token_required
     def get(self):
         data = parameter_required('omid')
         omid = data.get('omid')
         filter_args = [OrderMain.OMid == omid, OrderMain.isdelete == false()]
         if is_user():
-            user = self._current_user('请重新登录')
-            filter_args.append(OrderMain.USid == user.USid)
+            filter_args.append(OrderMain.USid == getattr(request, 'user').id)
         om = OrderMain.query.filter(*filter_args).first_('订单不存在')
+        user = User.query.filter(User.isdelete == false(), User.USid == om.USid).first_('订单信息错误')
         self._fill_ordermain(om)
         om.fill('usname', user.USname)
-        om.fill('USheader', user.USheader)
+        om.fill('usheader', user['USheader'])
         return Success
 
     def list_omstatus(self):
@@ -296,8 +298,8 @@ class COrder():
             func.count(OrderMain.OMid)).filter(
             OrderMain.isdelete == false(),
             OrderMain.PRid == prid,
-            OrderMain.OMstatus == x,).scalar() or 0, (
-            OrderStatus.completed.value, OrderStatus.has_won.value))
+            OrderMain.OMstatus == x, ).scalar() or 0, (
+                                       OrderStatus.completed.value, OrderStatus.has_won.value))
         ticket_info = {'prid': product.PRid,
                        'prname': product.PRname,
                        'time': '{} - {}'.format(product.PRissueStartTime, product.PRissueEndTime),
@@ -604,4 +606,3 @@ class COrder():
             if product:
                 product.PRnum += 1
                 db.session.add(product)
-
