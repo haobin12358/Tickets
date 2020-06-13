@@ -686,6 +686,12 @@ class PayType(Enum):
     scorepay = 3, '支付分'
 
 
+class ShareType(Enum):
+    direct = 0, '直接分享小程序'
+    promotion = 1, '推广图分享'
+    usercode = 2, '用户二维码'
+
+
 class ActivationTypeEnum(Enum):
     share_new = '100', '分享新人'
     share_old = '200', '分享老人'

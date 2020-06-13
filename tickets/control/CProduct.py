@@ -1,13 +1,15 @@
 import json
 import uuid
 from datetime import datetime
-from flask import request
+from flask import request, current_app
 from sqlalchemy import false, func
-from tickets.config.enums import UserStatus, ProductStatus
-from tickets.extensions.error_response import ParamsError, AuthorityError
+
+from tickets.common.playpicture import PlayPicture
+from tickets.config.enums import UserStatus, ProductStatus, ShareType
+from tickets.extensions.error_response import ParamsError, AuthorityError, StatusError
 from tickets.extensions.interface.user_interface import admin_required, is_admin, is_supplizer, phone_required, is_user
 from tickets.extensions.params_validates import parameter_required, validate_arg, validate_price
-from tickets.extensions.register_ext import db
+from tickets.extensions.register_ext import db, qiniu_oss
 from tickets.extensions.success_response import Success
 from tickets.models import Supplizer, Product, User
 
@@ -66,7 +68,7 @@ class CProduct(object):
         product.fill('prstatus_zh', ProductStatus(product.PRstatus).zh_value)
         # product.fill('tirules', self._query_rules(RoleType.ticketrole.value))
         # product.fill('scorerule', self._query_rules(RoleType.activationrole.value))
-        product.fill('tirules', '这是规则fasdfgsdalghasdkjghas')   # todo
+        product.fill('tirules', '这是规则fasdfgsdalghasdkjghas')  # todo
         product.fill('scorerule', '活跃分规则欧文车企佛按动；ghladshglasdh')
         show_record = True if product.PRstatus == ProductStatus.over.value else False
         product.fill('show_record', show_record)
@@ -268,3 +270,58 @@ class CProduct(object):
         # todo
 
         return Success('门票验证成功', data='sdafsdagq2903217u45r8qfasdklh')
+
+    def _check_time(self, time_model, fmt='%Y/%m/%d'):
+        if isinstance(time_model, datetime):
+            return time_model.strftime(fmt)
+        else:
+            try:
+                return datetime.strptime(str(time_model), '%Y-%m-%d %H:%M:%S').strftime(fmt)
+            except:
+                current_app.logger.error('时间转换错误')
+                raise StatusError('系统异常，请联系客服解决')
+
+    @phone_required
+    def get_promotion(self):
+        data = parameter_required('prid')
+        user = User.query.filter(User.isdelete == false(), User.USid == getattr(request, 'user').id).first_('请重新登录')
+        prid = data.get('prid')
+        params = data.get('params')
+        product = Product.query.filter(
+            Product.PRid == prid, Product.PRstatus < ProductStatus.interrupt.value,
+            Product.isdelete == false()).first_('活动已结束')
+
+        usid = user.USid
+
+        starttime = self._check_time(product.PRuseStartTime)
+        endtime = self._check_time(product.PRuseEndTime, fmt='%m/%d')
+
+        starttime_g = self._check_time(product.PRissueStartTime)
+        endtime_g = self._check_time(product.PRissueEndTime, fmt='%m/%d')
+
+        # 获取微信二维码
+        from ..control.CUser import CUser
+        cuser = CUser()
+        if not params or 'page=' not in params:
+            params = 'page=/pages/index/freeDetail'
+        if 'prid' not in params:
+            params = '{}&tiid={}'.format(params, prid)
+        if 'secret_usid' not in params:
+            params = '{}&secret_usid={}'.format(params, cuser._base_encode(usid))
+        params = '{}&sttype={}'.format(params, ShareType.promotion.value)
+        params_key = cuser.shorten_parameters(params, usid, 'params')
+        wxacode_path = cuser.wxacode_unlimit(
+            usid, {'params': params_key}, img_name='{}{}'.format(usid, prid), shuffix='png', is_hyaline=True)
+        local_path, promotion_path = PlayPicture().create_ticket(
+            product.PRimg, product.PRname, starttime, endtime, starttime_g, endtime_g, str(0), usid, prid, wxacode_path)
+        if current_app.config.get('IMG_TO_OSS'):
+            try:
+                qiniu_oss.save(local_path, filename=promotion_path[1:])
+            except Exception as e:
+                current_app.logger.info('上传七牛云失败，{}'.format(e.args))
+        scene = cuser.dict_to_query_str({'params': params_key})
+        current_app.logger.info('get scene = {}'.format(scene))
+        return Success(data={
+            'promotion_path': promotion_path,
+            'scene': scene
+        })

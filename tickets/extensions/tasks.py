@@ -3,6 +3,20 @@ from flask import current_app
 from sqlalchemy import false, or_
 from datetime import timedelta, datetime
 from .register_ext import celery, db, conn
+from ..config.enums import ProductStatus
+from ..models import Product
+
+# 图片下载格式配置文件
+contenttype_config = {
+    r'image/jpeg': r'.jpg',
+    r'image/pnetvue': r'.net',
+    r'image/tiff': r'.tif',
+    r'image/fax': r'.fax',
+    r'image/gif': r'.gif',
+    r'image/png': r'.png',
+    r'image/vnd.rn-realpix': r'.rp',
+    r'image/vnd.wap.wbmp': r'.wbmp',
+}
 
 
 def add_async_task(func, start_time, func_args, conn_id=None, queue='high_priority'):
@@ -47,6 +61,57 @@ def auto_cancle_order(omid):
     current_app.logger.info('订单自动取消{}'.format(dict(order_main)))
     corder = COrder()
     corder._cancle(order_main)
+
+
+@celery.task()
+def start_product(prid):
+    current_app.logger.info('修改限时商品为开始状态 prid {}'.format(prid))
+    try:
+        with db.auto_commit():
+            product = Product.query.filter(Product.isdelete == false(), Product.PRid == prid).first()
+            if not product:
+                current_app.logger.error(">>> 未找到该限时商品 <<<")
+                return
+            if not product.PRtimeLimeted:
+                current_app.logger.error(">>> 该商品非限时 <<<")
+                return
+            if product.PRstatus != ProductStatus.ready.value:
+                current_app.logger.error(">>> 该商品状态异常, prstatus: {} <<<".format(product.PRstatus))
+                return
+            product.PRstatus = ProductStatus.active.value
+        connid = 'start_product{}'.format(product.PRid)
+        conn_value = conn.get(connid)
+        if conn_value:
+            current_app.logger.info('exist start product conn:{}/{}'.format(connid, str(conn_value), encoding='utf-8'))
+            conn.delete(connid)
+    except Exception as e:
+        current_app.logger.error("限时商品修改为开始时出错 : {} <<<".format(e))
+    finally:
+        current_app.logger.info('限时商品修改为开始任务结束 prid {}'.format(prid))
+
+
+@celery.task()
+def end_product(prid):
+    current_app.logger.info('修改限时商品为结束 prid {}'.format(prid))
+    # from planet.control.CTicket import CTicket
+    try:
+        with db.auto_commit():
+            product = Product.query.filter(Product.isdelete == false(), Product.PRid == prid).first()
+            if not product:
+                current_app.logger.error(">>> 未找到此商品 <<<")
+                return
+            if product.PRstatus != ProductStatus.active.value:
+                current_app.logger.error(">>> 该限时商品状态异常, prstatus: {} <<<".format(product.PRstatus))
+                return
+            # 开奖 + 未中奖退钱
+            # todo 活跃分 只改状态
+            # CTicket().ticket_award_task(ticket)
+            product.PRstatus = ProductStatus.over.value
+    except Exception as e:
+        current_app.logger.error("该票修改为结束时出错 : {} <<<".format(e))
+    finally:
+        current_app.logger.info('修改抢票为结束任务完成 tiid {}'.format(prid))
+
 # if __name__ == '__main__':
 #     from tickets import create_app
 #
