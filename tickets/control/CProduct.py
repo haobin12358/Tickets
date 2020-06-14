@@ -7,6 +7,7 @@ from sqlalchemy import false, func, cast, Date
 from tickets.common.playpicture import PlayPicture
 from tickets.config.enums import UserStatus, ProductStatus, ShareType, RoleType, OrderStatus, PayType, \
     ActivationTypeEnum
+from tickets.config.http_config import API_HOST
 from tickets.control.CActivation import CActivation
 from tickets.control.CUser import CUser
 from tickets.extensions.error_response import ParamsError, AuthorityError, StatusError
@@ -90,8 +91,51 @@ class CProduct(object):
                                   'latitude': product.latitude})
         traded = False
         if is_user() and product.PRtimeLimeted:
-            traded = bool(self._query_traded(product.PRid, getattr(request, 'user').id))
-        product.fill('traded', traded)  # 打开限时商品时检测是否已购买
+            traded = self._query_traded(product.PRid, getattr(request, 'user').id)
+            if traded:
+                scorerank, rank = self._query_single_score(traded, product)
+                product.fill('scorerank', scorerank)  # 活跃分排名array
+                product.fill('rank', rank)  # 自己所在排名
+        product.fill('traded', bool(traded))  # 打开限时商品时检测是否已购买
+
+    def _query_single_score(self, order_main, product):
+        prnum = product.PRnum
+        if order_main.OMpayType == PayType.cash.value or order_main.OMstatus > OrderStatus.pending.value:
+            return [], 1
+        tsoid_array = [i[0] for i in db.session.query(OrderMain.OMid).filter(
+            OrderMain.isdelete == false(),
+            OrderMain.PRid == order_main.PRid,
+            OrderMain.OMstatus == OrderStatus.pending.value,
+        ).order_by(OrderMain.TSOactivation.desc(),
+                   OrderMain.createtime.asc(),
+                   origin=True).all() if i is not None]
+        res = [self._init_score_dict(order_main.OMid, '我的位置')]
+        rank = 1
+        if tsoid_array and len(tsoid_array) > 1:
+            my_index = tsoid_array.index(order_main.OMid)
+            rank = my_index + 1
+            if my_index == 0:
+                res.append(self._init_score_dict(tsoid_array[my_index + 1], '后一名'))
+            elif my_index == len(tsoid_array) - 1:
+                temp_index = prnum - 1 if rank > prnum else my_index - 1
+                res.insert(0, self._init_score_dict(tsoid_array[temp_index], '前一名'))
+            else:
+                temp_index = prnum - 1 if rank > prnum else my_index - 1
+                res.insert(0, self._init_score_dict(tsoid_array[temp_index], '前一名'))
+                res.append(self._init_score_dict(tsoid_array[my_index + 1], '后一名'))
+        return res, rank
+
+    @staticmethod
+    def _init_score_dict(tsoid, rank_zh):
+        score_info = db.session.query(OrderMain.OMintegralpayed, User.USheader).outerjoin(
+            User, User.USid == OrderMain.USid).filter(User.isdelete == false(), OrderMain.isdelete == false(),
+                                                      OrderMain.OMid == tsoid).first()
+        res = None
+        if score_info:
+            res = {'tsoactivation': score_info[0],
+                   'usheader': score_info[1] if score_info[1].startswith('http') else API_HOST + score_info[1],
+                   'rank_zh': rank_zh}
+        return res
 
     def _invitation_record(self, secret_usid, args):
         try:
