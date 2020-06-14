@@ -258,7 +258,7 @@ class COrder():
         self._fill_ordermain(om)
         om.fill('usname', user.USname)
         om.fill('usheader', user['USheader'])
-        return Success
+        return Success(data=om)
 
     def list_omstatus(self):
         """所有试用记录状态类型"""
