@@ -316,7 +316,7 @@ class COrder():
         om.fill('ompayType_eh', PayType(om.OMpayType).name)
         om.fill('omstatus_zh', OrderStatus(om.OMstatus).zh_value)
         om.fill('omstatus_eh', OrderStatus(om.OMstatus).name)
-        om.fill('createtime', om.createtime)
+        om.fill('tsocreatetime', om.createtime)
         prtimelimeted = False
         product = Product.query.filter(Product.PRid == om.PRid).first()
         if product and product.PRtimeLimeted:

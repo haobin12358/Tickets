@@ -73,7 +73,7 @@ class CUser(object):
 
         current_app.logger.info('get unionid is {}'.format(unionid))
         current_app.logger.info('get openid is {}'.format(openid))
-        user = self._get_exist_user((User.USunionid == openid,))
+        user = self._get_exist_user((User.USopenid1 == openid,))
         if user:
             current_app.logger.info('get exist user by openid: {}'.format(user.__dict__))
         elif unionid:
