@@ -42,6 +42,8 @@ class CProduct(object):
         for product in products:
             self._fill_product(product)
             product.fields = products_fields
+            if not product.PRtimeLimeted:
+                product.PRnum = '无限量'
         return Success(data=products)
 
     def get_product(self):
@@ -51,7 +53,7 @@ class CProduct(object):
         secret_usid = args.get('secret_usid')
         if secret_usid:  # 创建邀请记录
             self._invitation_record(secret_usid, args)
-        product = Product.query.filter(Product.isdelete == false(), Product.PRid == prid).first_('未找到商品信息')
+        product = Product.query.filter(Product.isdelete == false(), Product.PRid == prid).first_('商品已下架')
         self._fill_product(product)
         return Success(data=product)
 
@@ -132,7 +134,7 @@ class CProduct(object):
                                                       OrderMain.OMid == tsoid).first()
         res = None
         if score_info:
-            res = {'tsoactivation': score_info[0],
+            res = {'tsoactivation': score_info[0] or 0,
                    'usheader': score_info[1] if score_info[1].startswith('http') else API_HOST + score_info[1],
                    'rank_zh': rank_zh}
         return res

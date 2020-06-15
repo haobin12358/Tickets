@@ -88,7 +88,7 @@ class CUser(object):
             try:
                 superid = self._base_decode(args.get('secret_usid'))
                 current_app.logger.info('secret_usid --> superid {}'.format(superid))
-                upperd = self._get_exist_user((User.USid == superid))
+                upperd = self._get_exist_user((User.USid == superid,))
                 current_app.logger.info('mp_login get supper user : {0}'.format(upperd.__dict__))
                 if user and upperd.USid == user.USid:
                     upperd = None
@@ -148,7 +148,7 @@ class CUser(object):
                          'UINapi': request.path})
                     db.session.add(uin)
                     from .CActivation import CActivation
-                    CActivation.add_activation(isnewguy, upperd.USid, usid)
+                    CActivation().add_activation(isnewguy, upperd.USid, usid)
 
             userloggintime = UserLoginTime.create({"ULTid": str(uuid.uuid1()),
                                                    "USid": usid,
@@ -395,7 +395,8 @@ class CUser(object):
         if not user:
             raise TokenError('请重新登录')
         user.fields = ['USname', 'USname', 'USgender', 'USheader', 'USwxacode']
-        user.fill('usbirthday', str(user.USbirthday)[:10] or '')
+        user.USgender -= 1 if user.USgender > 0 else 1  # 仅是为了小程序端图标不修改，存储数据不变
+        user.fill('usbirthday', str(user.USbirthday)[:10] if user.USbirthday else '')
         user.fill('usminilevel', MiniUserGrade(user.USminiLevel).zh_value)
         self.__user_fill_uw_total(user)
         user.fill('verified', bool(user.USidentification))  # 是否信用认证
@@ -461,14 +462,17 @@ class CUser(object):
         year, month = str(date).split('-') if date else (datetime.now().year, datetime.now().month)
 
         # todo mock data
-        transactions = [{
-            "amount": "-¥3.05",
-            "time": "2019-07-01 16:38:29",
-            "title": "西安-宝鸡-咸阳·二日"
-        }]
-        total = '-3.05'
-        uwcash = 11
-
+        # transactions = [{
+        #     "amount": "-¥3.05",
+        #     "time": "2019-07-01 16:38:29",
+        #     "title": "西安-宝鸡-咸阳·二日"
+        # }]
+        # total = '-3.05'
+        # uwcash = 11
+        transactions = [
+        ]
+        total = '0'
+        uwcash = 0
         if option == 'expense':  # 消费记录
             # transactions, total = self._get_transactions(user, year, month, args)
             pass
@@ -631,6 +635,7 @@ class CUser(object):
     @token_required
     def user_certification(self):
         """实名认证"""
+        raise ParamsError('功能暂未开通，敬请期待')
         data = parameter_required(('usrealname', 'usidentification'))
         user = self._get_exist_user((User.USid == getattr(request, 'user').id,))
         if user.USidentification:
