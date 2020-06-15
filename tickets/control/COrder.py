@@ -118,8 +118,8 @@ class COrder():
                 trade = False
             elif ompaytype == PayType.scorepay.value:
                 # 活跃分
-                if not user.USrealname:
-                    raise StatusError('用户未进行信用认证')
+                # if not user.USrealname:  # 暂时除去实名验证
+                #     raise StatusError('用户未进行信用认证')
                 if not product.PRtimeLimeted:
                     raise StatusError('活跃分支持限时商品')
                 mount_price = 0

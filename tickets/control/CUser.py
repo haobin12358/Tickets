@@ -395,7 +395,8 @@ class CUser(object):
         if not user:
             raise TokenError('请重新登录')
         user.fields = ['USname', 'USname', 'USgender', 'USheader', 'USwxacode']
-        user.fill('usbirthday', str(user.USbirthday)[:10] or '')
+        user.USgender -= 1 if user.USgender > 0 else 1  # 仅是为了小程序端图标不修改，存储数据不变
+        user.fill('usbirthday', str(user.USbirthday)[:10] if user.USbirthday else '')
         user.fill('usminilevel', MiniUserGrade(user.USminiLevel).zh_value)
         self.__user_fill_uw_total(user)
         user.fill('verified', bool(user.USidentification))  # 是否信用认证
@@ -631,6 +632,7 @@ class CUser(object):
     @token_required
     def user_certification(self):
         """实名认证"""
+        raise ParamsError('功能暂未开通，敬请期待')
         data = parameter_required(('usrealname', 'usidentification'))
         user = self._get_exist_user((User.USid == getattr(request, 'user').id,))
         if user.USidentification:

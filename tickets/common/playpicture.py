@@ -34,10 +34,10 @@ class PlayPicture():
     # res_path = '../extensions/staticres/'
     def __init__(self):
         self.res_path = os.path.join(current_app.config['BASEDIR'], 'tickets', 'extensions', 'staticres')
-        self.pro_1 = '跟旗行一起游山玩水'
+        self.pro_1 = '来下沙，享优惠!'
         self.pro_2 = '长按扫码加入我们'
-        self.pro_3 = '来旗行，放肆High！'
-        self.pro_4 = '长按扫码抢免费门票'
+        self.pro_3 = '来下沙，享优惠！'
+        self.pro_4 = '长按扫码领取低价优惠券'
         self.temp_path = ''
 
     def _get_path(self, fold):
