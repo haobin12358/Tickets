@@ -462,14 +462,17 @@ class CUser(object):
         year, month = str(date).split('-') if date else (datetime.now().year, datetime.now().month)
 
         # todo mock data
-        transactions = [{
-            "amount": "-¥3.05",
-            "time": "2019-07-01 16:38:29",
-            "title": "西安-宝鸡-咸阳·二日"
-        }]
-        total = '-3.05'
-        uwcash = 11
-
+        # transactions = [{
+        #     "amount": "-¥3.05",
+        #     "time": "2019-07-01 16:38:29",
+        #     "title": "西安-宝鸡-咸阳·二日"
+        # }]
+        # total = '-3.05'
+        # uwcash = 11
+        transactions = [
+        ]
+        total = '0'
+        uwcash = 0
         if option == 'expense':  # 消费记录
             # transactions, total = self._get_transactions(user, year, month, args)
             pass

@@ -42,6 +42,8 @@ class CProduct(object):
         for product in products:
             self._fill_product(product)
             product.fields = products_fields
+            if not product.PRtimeLimeted:
+                product.PRnum = '无限量'
         return Success(data=products)
 
     def get_product(self):

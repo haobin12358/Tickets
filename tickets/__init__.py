@@ -3,7 +3,7 @@ from flask import Flask
 from flask import Blueprint
 from flask_cors import CORS
 
-from .api import AHello, AFile, AUser, ACommission, AOrder, AProduct, AActivation, AIndex, AAddress
+from .api import AHello, AFile, AUser, ACommission, AOrder, AProduct, AActivation, AIndex, AAddress, AOthers
 
 from .extensions.request_handler import error_handler, request_first_handler
 from .config.secret import DefaltSettig
@@ -14,6 +14,9 @@ from .extensions.base_request import Request
 
 def register(app):
     bp = Blueprint(__name__, 'bp', url_prefix='/api')
+    # bp.add_url_rule('/supplizer/<string:supplizer>', view_func=ASupplizer.as_view('supplizer'))
+    bp.add_url_rule('/news/<string:string>', view_func=AOthers.as_view('news'))
+    bp.add_url_rule('/play/<string:string>', view_func=AOthers.as_view('play'))
     bp.add_url_rule('/address/<string:address>', view_func=AAddress.as_view('address'))
     bp.add_url_rule('/index/<string:index>', view_func=AIndex.as_view('index'))
     bp.add_url_rule('/product/<string:product>', view_func=AProduct.as_view('product'))
