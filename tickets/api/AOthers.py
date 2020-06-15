@@ -13,6 +13,7 @@ class AOthers(Resource):
             'list': self.other.brand_list,  # brand/list
             'list_role': self.other.list_role,  # play/list_role
             'get_dealing_approval': self.other.get_dealing_approval,  # approval/get_dealing_approval
+            'travelrecord_list': self.other.travelrecord_list  # scenicspot/travelrecord_list'
         }
         return apis
 

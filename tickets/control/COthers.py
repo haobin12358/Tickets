@@ -88,3 +88,6 @@ class COthers:
 
     def get_dealing_approval(self):
         return Success(data=[])
+
+    def travelrecord_list(self):
+        return Success(data={'top': None, 'travelrecord': []})
