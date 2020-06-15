@@ -317,10 +317,10 @@ class COrder():
         om.fill('omstatus_zh', OrderStatus(om.OMstatus).zh_value)
         om.fill('omstatus_eh', OrderStatus(om.OMstatus).name)
         om.fill('tsocreatetime', om.createtime)
-        prtimelimeted = False
+        prtimelimeted = 0
         product = Product.query.filter(Product.PRid == om.PRid).first()
         if product and product.PRtimeLimeted:
-            prtimelimeted = True
+            prtimelimeted = 1
             om.fill('triptime', '{} - {}'.format(product.PRuseStartTime.strftime("%Y/%m/%d %H:%M:%S"),
                                                  product.PRuseEndTime.strftime("%Y/%m/%d %H:%M:%S")))
 
