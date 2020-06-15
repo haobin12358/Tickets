@@ -106,7 +106,7 @@ class CProduct(object):
             OrderMain.isdelete == false(),
             OrderMain.PRid == order_main.PRid,
             OrderMain.OMstatus == OrderStatus.pending.value,
-        ).order_by(OrderMain.TSOactivation.desc(),
+        ).order_by(OrderMain.OMintegralpayed.desc(),
                    OrderMain.createtime.asc(),
                    origin=True).all() if i is not None]
         res = [self._init_score_dict(order_main.OMid, '我的位置')]
@@ -391,12 +391,13 @@ class CProduct(object):
             Product.isdelete == false()).first_('活动已结束')
 
         usid = user.USid
+        starttime = endtime = starttime_g = endtime_g = None
+        if product.PRtimeLimeted:
+            starttime = self._check_time(product.PRuseStartTime)
+            endtime = self._check_time(product.PRuseEndTime, fmt='%m/%d')
 
-        starttime = self._check_time(product.PRuseStartTime)
-        endtime = self._check_time(product.PRuseEndTime, fmt='%m/%d')
-
-        starttime_g = self._check_time(product.PRissueStartTime)
-        endtime_g = self._check_time(product.PRissueEndTime, fmt='%m/%d')
+            starttime_g = self._check_time(product.PRissueStartTime)
+            endtime_g = self._check_time(product.PRissueEndTime, fmt='%m/%d')
 
         # 获取微信二维码
         from ..control.CUser import CUser
@@ -404,15 +405,15 @@ class CProduct(object):
         if not params or 'page=' not in params:
             params = 'page=/pages/index/freeDetail'
         if 'prid' not in params:
-            params = '{}&tiid={}'.format(params, prid)
+            params = '{}&prid={}'.format(params, prid)
         if 'secret_usid' not in params:
             params = '{}&secret_usid={}'.format(params, cuser._base_encode(usid))
         params = '{}&sttype={}'.format(params, ShareType.promotion.value)
         params_key = cuser.shorten_parameters(params, usid, 'params')
         wxacode_path = cuser.wxacode_unlimit(
-            usid, {'params': params_key}, img_name='{}{}'.format(usid, prid), shuffix='png', is_hyaline=True)
+            usid, {'params': params_key}, img_name='{}{}'.format(usid, prid),  is_hyaline=True)
         local_path, promotion_path = PlayPicture().create_ticket(
-            product.PRimg, product.PRname, starttime, endtime, starttime_g, endtime_g, str(0), usid, prid, wxacode_path)
+            product.PRimg, product.PRname, str(0), usid, prid, wxacode_path, starttime, endtime, starttime_g, endtime_g)
         if current_app.config.get('IMG_TO_OSS'):
             try:
                 qiniu_oss.save(local_path, filename=promotion_path[1:])
