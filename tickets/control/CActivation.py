@@ -121,7 +121,7 @@ class CActivation():
         for tso in tso_list:
             current_app.logger.info('tso status {}'.format(tso.OMstatus))
             if not no_loop:
-                tso.TSOactivation += atnum
+                tso.OMintegralpayed += atnum
             db.session.add(ProductOrderActivation.create({
                 'POAid': str(uuid.uuid1()),
                 'OMid': tso.OMid,

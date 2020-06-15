@@ -53,7 +53,7 @@ class CProduct(object):
         secret_usid = args.get('secret_usid')
         if secret_usid:  # 创建邀请记录
             self._invitation_record(secret_usid, args)
-        product = Product.query.filter(Product.isdelete == false(), Product.PRid == prid).first_('未找到商品信息')
+        product = Product.query.filter(Product.isdelete == false(), Product.PRid == prid).first_('商品已下架')
         self._fill_product(product)
         return Success(data=product)
 

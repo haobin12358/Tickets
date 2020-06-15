@@ -88,7 +88,7 @@ class CUser(object):
             try:
                 superid = self._base_decode(args.get('secret_usid'))
                 current_app.logger.info('secret_usid --> superid {}'.format(superid))
-                upperd = self._get_exist_user((User.USid == superid))
+                upperd = self._get_exist_user((User.USid == superid,))
                 current_app.logger.info('mp_login get supper user : {0}'.format(upperd.__dict__))
                 if user and upperd.USid == user.USid:
                     upperd = None
@@ -148,7 +148,7 @@ class CUser(object):
                          'UINapi': request.path})
                     db.session.add(uin)
                     from .CActivation import CActivation
-                    CActivation.add_activation(isnewguy, upperd.USid, usid)
+                    CActivation().add_activation(isnewguy, upperd.USid, usid)
 
             userloggintime = UserLoginTime.create({"ULTid": str(uuid.uuid1()),
                                                    "USid": usid,

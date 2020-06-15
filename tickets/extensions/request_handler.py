@@ -121,10 +121,6 @@ def request_first_handler(app):
             from tickets.extensions.error_response import TokenError
             raise TokenError('登录超时，请重新登录')
 
-    @app.before_request
-    def invitation_records():
-        _invitation_records()
-
 
 def error_handler(app):
     @app.errorhandler(Exception)
