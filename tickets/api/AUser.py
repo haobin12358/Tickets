@@ -13,6 +13,8 @@ class AUser(Resource):
             'my_wallet': self.cuser.my_wallet,
             'identification': self.cuser.identification,
             'get_admin_list': self.cuser.get_admin_list,  # 获取管理员列表
+            'list_user_commison': self.cuser.list_user_commison,  # 销售商列表(后台佣金)
+            'list_fans': self.cuser.list_fans,  # 获取某人粉丝列表
         }
         return apis
 

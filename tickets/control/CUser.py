@@ -6,19 +6,19 @@ from decimal import Decimal
 
 import requests
 from flask import current_app, request
-from sqlalchemy import false, cast, Date, and_, or_
+from sqlalchemy import false, cast, Date, and_, or_, func
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from tickets.common.default_head import GithubAvatarGenerator
 from tickets.common.id_check import DOIDCheck
 from tickets.config.enums import MiniUserGrade, ApplyFrom, ActivationTypeEnum, UserLoginTimetype, \
-    AdminLevel, AdminStatus, AdminAction
+    AdminLevel, AdminStatus, AdminAction, AdminActionS
 from tickets.config.secret import MiniProgramAppId, MiniProgramAppSecret
-from tickets.control.BaseControl import BaseController
+from tickets.control.BaseControl import BaseController, BaseAdmin
 from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError, NotFound, \
     InsufficientConditionsError, AuthorityError
 from tickets.extensions.interface.user_interface import token_required, phone_required, is_admin, is_supplizer, is_user, \
-    get_current_admin
+    get_current_admin, admin_required
 from tickets.extensions.params_validates import parameter_required, validate_arg
 from tickets.extensions.register_ext import db, mp_miniprogram, qiniu_oss
 from tickets.extensions.request_handler import _get_user_agent
@@ -27,10 +27,12 @@ from tickets.extensions.token_handler import usid_to_token
 from tickets.extensions.weixin import WeixinLogin
 from tickets.extensions.weixin.mp import WeixinMPError
 from tickets.models import User, SharingParameters, UserLoginTime, UserWallet, ProductVerifier, AddressProvince, \
-    AddressArea, AddressCity, IDCheck, UserMedia, UserInvitation, Admin, AdminNotes
+    AddressArea, AddressCity, IDCheck, UserMedia, UserInvitation, Admin, AdminNotes, UserAccessApi, UserCommission
 
 
 class CUser(object):
+    base_admin = BaseAdmin()
+
     @staticmethod
     def _decrypt_encrypted_user_data(encrypteddata, session_key, iv):
         """小程序信息解密"""
@@ -759,10 +761,11 @@ class CUser(object):
                 Admin.isdelete == False, Admin.ADlevel == AdminLevel.common_admin.value).order_by(
                 Admin.createtime.desc()).all()
         for admin in admins:
-            admin.fields = ['ADid', 'ADname', 'ADheader', 'createtime', 'ADtelephone', 'ADnum']
+            admin.fields = ['ADid', 'ADname', 'ADheader', 'createtime', 'ADnum']
             admin.fill('adlevel', AdminLevel(admin.ADlevel).zh_value)
             admin.fill('adstatus', AdminStatus(admin.ADstatus).zh_value)
             admin.fill('adpassword', '*' * 6)
+            admin.fill('adtelphone', admin.ADtelephone)
             admin_login = UserLoginTime.query.filter_by_(
                 USid=admin.ADid, ULtype=UserLoginTimetype.admin.value).order_by(UserLoginTime.createtime.desc()).first()
             logintime = None
@@ -771,6 +774,81 @@ class CUser(object):
             admin.fill('logintime', logintime)
 
         return Success('获取管理员列表成功', data=admins)
+
+    @token_required
+    def list_user_commison(self):
+        """查看代理商获取的佣金列表"""
+        args = request.args.to_dict()
+        mobile = args.get('mobile')
+        name = args.get('name')
+        user_query = User.query.filter(User.isdelete == false())
+        if mobile:
+            user_query = user_query.filter(User.UStelephone.contains(mobile.strip()))
+        if name:
+            user_query = user_query.filter(User.USname.contains(name.strip()))
+
+        users = user_query.order_by(User.createtime.desc()).all_with_page()
+        for user in users:
+            # 佣金
+            user.fields = ['USid', 'USname', 'USheader', 'USCommission1',
+                           'USCommission2', 'USCommission3', 'USlevel']
+            usid = user.USid
+            user.fill('ustelphone', user.UStelephone)
+            wallet = UserWallet.query.filter(
+                UserWallet.isdelete == False,
+                UserWallet.USid == usid,
+            ).first()
+            remain = getattr(wallet, 'UWbalance', 0)
+            total = getattr(wallet, 'UWtotal', 0)
+            cash = getattr(wallet, 'UWcash', 0)
+            user.fill('remain', remain)
+            user.fill('total', total)
+            user.fill('cash', cash)
+            # 粉丝数
+            fans_num = User.query.filter(
+                User.isdelete == False,
+                User.USsupper1 == usid,
+            ).count()
+            user.fill('fans_num', fans_num)
+
+            userlogintime = UserAccessApi.query.filter(
+                UserAccessApi.isdelete == False,
+                UserAccessApi.USid == usid
+            ).order_by(
+                UserAccessApi.createtime.desc()
+            ).first() or UserLoginTime.query.filter(
+                UserLoginTime.isdelete == False,
+                UserLoginTime.USid == usid
+            ).order_by(
+                UserLoginTime.createtime.desc()
+            ).first()
+            user.fill('userlogintime',
+                      getattr(userlogintime, 'createtime', user.updatetime) or user.updatetime)
+            user.fill('usquery', 0)
+        return Success(data=users)
+
+    @admin_required
+    def list_fans(self):
+        data = parameter_required(('usid',))
+        usid = data.get('usid')
+        users = User.query.filter(
+            User.isdelete == False,
+            User.USsupper1 == usid
+        ).all_with_page()
+        for user in users:
+            user.fields = ['USlevel', 'USname']
+            user.fill('ustelphone', user.UStelephone)
+            # 从该下级获得的佣金
+            total = UserCommission.query.with_entities(func.sum(UserCommission.UCcommission)). \
+                filter(
+                UserCommission.isdelete == False,
+                UserCommission.USid == usid,
+                UserCommission.FromUsid == user.USid,
+                UserCommission.UCstatus >= 0
+            ).all()
+            total = total[0][0] or 0
+            user.fill('commision_from', total)
+        return Success(data=users)
 
     @token_required
     def update_admin_password(self):
@@ -845,7 +923,9 @@ class CUser(object):
         # 等级校验
         if adlevel not in [1, 2, 3]:
             raise ParamsError('adlevel参数错误')
-
+        telephone = data.get('adtelphone')
+        if not re.match(r'^1[0-9]{10}$', str(telephone)):
+            raise ParamsError('手机号格式错误')
         # 账户名校验
         self.__check_adname(adname, adid)
         adnum = self.__get_adnum()
@@ -855,7 +935,7 @@ class CUser(object):
                 'ADid': adid,
                 'ADnum': adnum,
                 'ADname': adname,
-                'ADtelephone': data.get('adtelphone'),
+                'ADtelephone': telephone,
                 'ADfirstpwd': password,
                 'ADfirstname': adname,
                 'ADpassword': generate_password_hash(password),
@@ -887,56 +967,59 @@ class CUser(object):
             raise AuthorityError('权限不足')
         update_admin = {}
         action_list = []
-        if data.get("adname"):
-            update_admin['ADname'] = data.get("adname")
-            action_list.append(str(AdminAction.ADname.value) + '为' + str(data.get("adname")) + '\n')
+        with db.auto_commit():
+            if data.get("adname"):
+                update_admin['ADname'] = data.get("adname")
+                action_list.append(str(AdminAction.ADname.value) + '为' + str(data.get("adname")) + '\n')
 
-        if data.get('adheader'):
-            update_admin['ADheader'] = data.get("adheader")
-            action_list.append(str(AdminAction.ADheader.value) + '\n')
-        if data.get('adtelphone'):
-            # self.__check_identifyingcode(data.get('adtelphone'), data.get('identifyingcode'))
-            update_admin['ADtelphone'] = data.get('adtelphone')
-            action_list.append(str(AdminAction.ADtelphone.value) + '为' + str(data.get("adtelphone")) + '\n')
-        password = data.get('adpassword')
-        if password and password != '*' * 6:
-            self.__check_password(password)
-            password = generate_password_hash(password)
-            update_admin['ADpassword'] = password
-            action_list.append(str(AdminAction.ADpassword.value) + '为' + str(password) + '\n')
+            if data.get('adheader'):
+                update_admin['ADheader'] = data.get("adheader")
+                action_list.append(str(AdminAction.ADheader.value) + '\n')
+            if data.get('adtelphone'):
+                # self.__check_identifyingcode(data.get('adtelphone'), data.get('identifyingcode'))
+                update_admin['ADtelephone'] = data.get('adtelphone')
+                action_list.append(str(AdminAction.ADtelphone.value) + '为' + str(data.get("adtelphone")) + '\n')
+            password = data.get('adpassword')
+            if password and password != '*' * 6:
+                self.__check_password(password)
+                password = generate_password_hash(password)
+                update_admin['ADpassword'] = password
+                action_list.append(str(AdminAction.ADpassword.value) + '为' + str(password) + '\n')
 
-        if admin.ADlevel == AdminLevel.super_admin.value:
-            filter_adid = data.get('adid') or admin.ADid
-            if getattr(AdminLevel, data.get('adlevel', ""), ""):
-                update_admin['ADlevel'] = getattr(AdminLevel, data.get('adlevel')).value
-                action_list.append(
-                    str(AdminAction.ADlevel.value) + '为' + getattr(AdminLevel, data.get('adlevel')).zh_value + '\n')
-            if getattr(AdminStatus, data.get('adstatus', ""), ""):
-                update_admin['ADstatus'] = getattr(AdminStatus, data.get('adstatus')).value
-                action_list.append(
-                    str(AdminAction.ADstatus.value) + '为' + getattr(AdminStatus, data.get('adstatus')).zh_value + '\n')
-        else:
-            filter_adid = admin.ADid
-        self.__check_adname(data.get("adname"), filter_adid)
+            if admin.ADlevel == AdminLevel.super_admin.value:
+                filter_adid = data.get('adid') or admin.ADid
+                if getattr(AdminLevel, data.get('adlevel', ""), ""):
+                    update_admin['ADlevel'] = getattr(AdminLevel, data.get('adlevel')).value
+                    action_list.append(
+                        str(AdminAction.ADlevel.value) + '为' + getattr(AdminLevel, data.get('adlevel')).zh_value + '\n')
+                if getattr(AdminStatus, data.get('adstatus', ""), ""):
+                    update_admin['ADstatus'] = getattr(AdminStatus, data.get('adstatus')).value
+                    action_list.append(
+                        str(AdminAction.ADstatus.value) + '为' + getattr(AdminStatus,
+                                                                        data.get('adstatus')).zh_value + '\n')
+            else:
+                filter_adid = admin.ADid
+            self.__check_adname(data.get("adname"), filter_adid)
 
-        update_admin = {k: v for k, v in update_admin.items() if v or v == 0}
-        update_result = self.update_admin_by_filter(ad_and_filter=[Admin.ADid == filter_adid, Admin.isdelete == False],
-                                                    ad_or_filter=[], adinfo=update_admin)
-        if not update_result:
-            raise ParamsError('管理员不存在')
-        filter_admin = Admin.query.filter(Admin.isdelete == false(), Admin.ADid == filter_adid).first_('管理员不存在')
+            update_admin = {k: v for k, v in update_admin.items() if v or v == 0}
+            update_result = self.update_admin_by_filter(
+                ad_and_filter=[Admin.ADid == filter_adid, Admin.isdelete == False],
+                ad_or_filter=[], adinfo=update_admin)
+            if not update_result:
+                raise ParamsError('管理员不存在')
+            filter_admin = Admin.query.filter(Admin.isdelete == false(), Admin.ADid == filter_adid).first_('管理员不存在')
 
-        action_str = admin.ADname + '修改' + filter_admin.ADname + ','.join(action_list)
+            action_str = admin.ADname + '修改' + filter_admin.ADname + ','.join(action_list)
 
-        an_instance = AdminNotes.create({
-            'ANid': str(uuid.uuid1()),
-            'ADid': filter_adid,
-            'ANaction': action_str,
-            "ANdoneid": request.user.id
-        })
-        db.session.add(an_instance)
-        # if is_admin(): todo
-        #     BASEADMIN().create_action(AdminActionS.insert.value, 'AdminNotes', str(uuid.uuid1()))
+            an_instance = AdminNotes.create({
+                'ANid': str(uuid.uuid1()),
+                'ADid': filter_adid,
+                'ANaction': action_str,
+                "ANdoneid": request.user.id
+            })
+            db.session.add(an_instance)
+        if is_admin():
+            self.base_admin.create_action(AdminActionS.insert.value, 'AdminNotes', str(uuid.uuid1()))
         return Success("操作成功")
 
     def update_admin_by_filter(self, ad_and_filter, ad_or_filter, adinfo):
@@ -956,7 +1039,7 @@ class CUser(object):
         """账户名校验"""
         if not adname or adid:
             return True
-        suexist = self.get_admin_by_name(adname)
+        suexist = Admin.query.filter_by(ADname=adname, isdelete=False).first()
         if suexist and suexist.ADid != adid:
             raise ParamsError('用户名已存在')
         return True

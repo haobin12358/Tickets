@@ -413,7 +413,7 @@ class CProduct(object):
         params = '{}&sttype={}'.format(params, ShareType.promotion.value)
         params_key = cuser.shorten_parameters(params, usid, 'params')
         wxacode_path = cuser.wxacode_unlimit(
-            usid, {'params': params_key}, img_name='{}{}'.format(usid, prid),  is_hyaline=True)
+            usid, {'params': params_key}, img_name='{}{}'.format(usid, prid), is_hyaline=True)
         local_path, promotion_path = PlayPicture().create_ticket(
             product.PRimg, product.PRname, str(0), usid, prid, wxacode_path, starttime, endtime, starttime_g, endtime_g)
         if current_app.config.get('IMG_TO_OSS'):
@@ -427,28 +427,3 @@ class CProduct(object):
             'promotion_path': promotion_path,
             'scene': scene
         })
-
-    @staticmethod
-    def list_role():
-        return Success(data=Agreement.query.filter_by(isdelete=False).order_by(Agreement.AMtype.asc()).all())
-
-    @admin_required
-    def update_role(self):
-        data = parameter_required('amtype')
-        # amtype = int(data.get('amtype', 0) or 0)
-        with db.auto_commit():
-            amtype = self._check_roletype(data.get('amtype', 0))
-            role = Agreement.query.filter_by(AMtype=amtype, isdelete=False).first()
-            if not role:
-                raise ParamsError('规则失效')
-            role.AMcontent = data.get('amcontent')
-        return Success('更新成功')
-
-    def _check_roletype(self, amtype):
-        try:
-            amtype_ = int(amtype or 0)
-            amtype_ = RoleType(amtype_).value
-            return amtype_
-        except:
-            current_app.logger.info('非法类型 {}'.format(amtype))
-            raise ParamsError('规则不存在')

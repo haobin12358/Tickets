@@ -11,5 +11,12 @@ class AOthers(Resource):
             'get_params': self.other.get_params,  # play/get_params
             'location': self.other.get_location,  # news/location 获取定位
             'list': self.other.brand_list,  # brand/list
+            'list_role': self.other.list_role,  # play/list_role
+        }
+        return apis
+
+    def post(self, string):
+        apis = {
+            'update_role': self.other.update_role,  # play/update_role
         }
         return apis

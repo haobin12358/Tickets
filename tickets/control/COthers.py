@@ -2,11 +2,14 @@ import uuid
 
 from flask import request, current_app
 
+from tickets.config.enums import RoleType
 from tickets.control.CUser import CUser
-from tickets.extensions.interface.user_interface import token_required
+from tickets.extensions.error_response import ParamsError
+from tickets.extensions.interface.user_interface import token_required, admin_required
 from tickets.extensions.params_validates import parameter_required
 from tickets.extensions.register_ext import db
 from tickets.extensions.success_response import Success
+from tickets.models import Agreement
 
 
 class COthers:
@@ -57,3 +60,28 @@ class COthers:
     @staticmethod
     def brand_list():
         return Success(data=[])
+
+    @staticmethod
+    def list_role():
+        return Success(data=Agreement.query.filter_by(isdelete=False).order_by(Agreement.AMtype.asc()).all())
+
+    @admin_required
+    def update_role(self):
+        data = parameter_required('amtype')
+        # amtype = int(data.get('amtype', 0) or 0)
+        with db.auto_commit():
+            amtype = self._check_roletype(data.get('amtype', 0))
+            role = Agreement.query.filter_by(AMtype=amtype, isdelete=False).first()
+            if not role:
+                raise ParamsError('规则失效')
+            role.AMcontent = data.get('amcontent')
+        return Success('更新成功')
+
+    def _check_roletype(self, amtype):
+        try:
+            amtype_ = int(amtype or 0)
+            amtype_ = RoleType(amtype_).value
+            return amtype_
+        except:
+            current_app.logger.info('非法类型 {}'.format(amtype))
+            raise ParamsError('规则不存在')

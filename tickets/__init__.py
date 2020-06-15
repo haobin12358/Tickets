@@ -16,9 +16,6 @@ from .extensions.base_request import Request
 def register(app):
     bp = Blueprint(__name__, 'bp', url_prefix='/api')
     bp.add_url_rule('/supplizer/<string:supplizer>', view_func=ASupplizer.as_view('supplizer'))
-    bp.add_url_rule('/brand/<string:string>', view_func=AOthers.as_view('brand'))
-    bp.add_url_rule('/news/<string:string>', view_func=AOthers.as_view('news'))
-    bp.add_url_rule('/play/<string:string>', view_func=AOthers.as_view('play'))
     bp.add_url_rule('/address/<string:address>', view_func=AAddress.as_view('address'))
     bp.add_url_rule('/index/<string:index>', view_func=AIndex.as_view('index'))
     bp.add_url_rule('/product/<string:product>', view_func=AProduct.as_view('product'))
@@ -26,8 +23,9 @@ def register(app):
     bp.add_url_rule('/file/<string:file>', view_func=AFile.as_view('file'))
     bp.add_url_rule('/hello/<string:hello>', view_func=AHello.as_view('hello'))
     bp.add_url_rule('/order/<string:order>', view_func=AOrder.as_view('order'))
-    bp.add_url_rule('/commission/<string:commission>', view_func=ACommission.as_view('commission'))
+    bp.add_url_rule('/commision/<string:commission>', view_func=ACommission.as_view('commission'))
     bp.add_url_rule('/activation/<string:activation>', view_func=AActivation.as_view('activation'))  # 活跃度
+    bp.add_url_rule('/others/<string:string>', view_func=AOthers.as_view('others'))
     app.register_blueprint(bp)
 
 
