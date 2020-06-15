@@ -33,7 +33,7 @@ class MyGaussianBlur(ImageFilter.Filter):
 class PlayPicture():
     # res_path = '../extensions/staticres/'
     def __init__(self):
-        self.res_path = os.path.join(current_app.config['BASEDIR'], 'planet', 'extensions', 'staticres')
+        self.res_path = os.path.join(current_app.config['BASEDIR'], 'tickets', 'extensions', 'staticres')
         self.pro_1 = '跟旗行一起游山玩水'
         self.pro_2 = '长按扫码加入我们'
         self.pro_3 = '来旗行，放肆High！'
@@ -213,8 +213,8 @@ class PlayPicture():
         # dw = imd.Draw(im)
         dw.rectangle((x, y, x + w, y + h), fill=color)
 
-    def create_ticket(self, path, tiname, starttime, endtime,
-                      starttime_grab, endtime_grab, playprice, usid, tiid, wxacode):
+    def create_ticket(self, path, tiname, playprice, usid, tiid, wxacode, starttime=None, endtime=None,
+                      starttime_grab=None, endtime_grab=None):
         if not str(path).startswith('/img'):
             if not (str(path).startswith('http') or str(path).startswith('https')):
                 return
@@ -272,11 +272,13 @@ class PlayPicture():
         dw.text((55, 760), '\n'.join(tinamelist), font=tinamefont, fill='#000000')
 
         # 出发时间
-        timefont = imf.truetype(os.path.join(self.res_path, 'PingFang Regular.otf'), 24)
-        dw.text((55, 898), '出游时间: {}-{}'.format(starttime, endtime), font=timefont, fill='#000000')
+        if starttime and endtime:
+            timefont = imf.truetype(os.path.join(self.res_path, 'PingFang Regular.otf'), 24)
+            dw.text((55, 898), '使用时间: {}-{}'.format(starttime, endtime), font=timefont, fill='#000000')
 
         # 抢票时间
-        dw.text((55, 931), '领票时间: {}-{}'.format(starttime_grab, endtime_grab), font=timefont, fill='#000000')
+        if starttime_grab and endtime_grab:
+            dw.text((55, 931), '发放时间: {}-{}'.format(starttime_grab, endtime_grab), font=timefont, fill='#000000')
         # ￥
         # icon_font = imf.truetype(os.path.join(self.res_path, 'PingFang Regular.otf'), 48)
 
@@ -293,8 +295,9 @@ class PlayPicture():
         # dw.text((price_x, 874), playprice, font=pricefont, fill='#000000')\
 
         # free
-        free = img.open(os.path.join(self.res_path, 'free.png')).convert('RGBA')
-        new_im.paste(free, (445, 894), free)
+        if starttime and endtime:
+            free = img.open(os.path.join(self.res_path, 'free.png')).convert('RGBA')
+            new_im.paste(free, (445, 894), free)
         # pro1
         profont_1 = imf.truetype(os.path.join(self.res_path, 'PangMenZhengDao.ttf'), 52)
         dw.text((47, 1077), self.pro_3, font=profont_1, fill='#FFFFFF')
