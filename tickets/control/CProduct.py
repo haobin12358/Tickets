@@ -415,7 +415,8 @@ class CProduct(object):
         wxacode_path = cuser.wxacode_unlimit(
             usid, {'params': params_key}, img_name='{}{}'.format(usid, prid), is_hyaline=True)
         local_path, promotion_path = PlayPicture().create_ticket(
-            product.PRimg, product.PRname, str(0), usid, prid, wxacode_path, starttime, endtime, starttime_g, endtime_g)
+            product.PRimg, product.PRname, str(0), usid, prid, wxacode_path, product.PRlinePrice,
+            product.PRtruePrice, starttime, endtime, starttime_g, endtime_g)
         if current_app.config.get('IMG_TO_OSS'):
             try:
                 qiniu_oss.save(local_path, filename=promotion_path[1:])
