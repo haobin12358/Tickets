@@ -14,7 +14,7 @@ from tickets.config.enums import PayType, ProductStatus, UserCommissionStatus, A
 from tickets.config.http_config import API_HOST
 from tickets.config.timeformat import format_for_web_second, format_forweb_no_HMS
 from tickets.extensions.error_response import ParamsError, StatusError, AuthorityError
-from tickets.extensions.interface.user_interface import is_user, is_admin, token_required, phone_required
+from tickets.extensions.interface.user_interface import is_user, is_admin, token_required, phone_required, is_supplizer
 from tickets.extensions.make_qrcode import qrcodeWithtext
 from tickets.extensions.params_validates import parameter_required
 from tickets.extensions.register_ext import db, mini_wx_pay
@@ -620,3 +620,67 @@ class COrder():
             if product:
                 product.PRnum += 1
                 db.session.add(product)
+
+    @token_required
+    def history_detail(self):
+        if not is_supplizer() and not is_admin():
+            raise AuthorityError()
+        days = request.args.to_dict().get('days')
+        if days:
+            days = days.replace(' ', '').split(',')
+            days = list(map(lambda x: datetime.strptime(x, '%Y-%m-%d').date(), days))
+        else:
+            days = []
+        suid = request.user.id if is_supplizer() else None
+        datas = []
+        for day in days:
+            data = {
+                'day_total': self._history_order('total', day=day,
+                                                 status=(OrderMain.OMstatus > OrderStatus.pending.value,
+                                                         OrderMain.OMpayType == PayType.cash.value),
+                                                 suid=suid),
+                'day_count': self._history_order('count', day=day, suid=suid),
+                'wai_pay_count': self._history_order('count', day=day,
+                                                     status=(OrderMain.OMstatus == OrderStatus.wait_pay.value,),
+                                                     suid=suid),
+                # 'in_refund': self._inrefund(day=day, suid=suid),
+                'in_refund': 0,
+                'day': day
+            }
+            datas.append(data)
+        if not days:
+            # 获取系统全部
+            data = {
+                'day_total': self._history_order('total',
+                                                 status=(OrderMain.OMstatus > OrderStatus.pending.value,
+                                                         OrderMain.OMpayType == PayType.cash.value),
+                                                 suid=suid),
+                'day_count': self._history_order('count', suid=suid),
+                'wai_pay_count': 0,
+                'in_refund': 0,
+                'day': None
+            }
+            datas.append(data)
+        return Success(data=datas)
+
+    def _history_order(self, *args, **kwargs):
+        with db.auto_commit() as session:
+            status = kwargs.get('status', None)
+            day = kwargs.get('day', None)
+            suid = kwargs.get('suid', None)
+            if 'total' in args:
+                query = session.query(func.sum(OrderMain.OMtrueMount))
+            elif 'count' in args:
+                query = session.query(func.count(OrderMain.OMid))
+            # elif 'refund' in args:
+            #     return self._inrefund(*args, **kwargs)
+            query = query.filter(OrderMain.isdelete == False)
+            if status is not None:
+                query = query.filter(*status)
+            if day is not None:
+                query = query.filter(
+                    cast(OrderMain.createtime, Date) == day,
+                )
+            if suid is not None:
+                query = query.filter(OrderMain.PRcreateId == suid)
+            return query.first()[0] or 0

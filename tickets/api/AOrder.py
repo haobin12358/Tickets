@@ -12,6 +12,7 @@ class AOrder(Resource):
             "list_omstatus": self.corder.list_omstatus,
             "list_trade": self.corder.list_trade,
             "get": self.corder.get,
+            'history_detail': self.corder.history_detail,
         }
         return apis
 
