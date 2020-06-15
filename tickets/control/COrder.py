@@ -157,7 +157,7 @@ class COrder():
         body = product.PRname[:16] + '...'
         openid = user.USopenid1
         # 30分钟 自动取消
-        # add_async_task(auto_cancle_order, now + timedelta(minutes=30), (omid,), conn_id='autocancle{}'.format(omid))
+        add_async_task(auto_cancle_order, now + timedelta(minutes=30), (omid,), conn_id='autocancle{}'.format(omid))
         pay_args = self._add_pay_detail(opayno=opayno, body=body, mount_price=mount_price, openid=openid,
                                         opayType=ompaytype, redirect=redirect)
         response = {
