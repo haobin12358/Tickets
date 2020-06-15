@@ -205,7 +205,7 @@ class COrder():
         elif is_admin():
             if omstatus:
                 try:
-                    omstatus = OrderStatus(int(str(omstatus)))
+                    omstatus = OrderStatus(int(str(omstatus))).value
                 except:
                     omstatus = OrderStatus.pending.value
                 filter_args.append(OrderMain.OMstatus == omstatus)
@@ -242,6 +242,10 @@ class COrder():
             # todo 填充商品信息
             # 填充用户信息
             user_info = user_dict.get(om.USid)
+            # current_app.logger.info('get user info {}'.format(user_info))
+            # current_app.logger.info('get user id {}'.format(om.USid))
+            # current_app.logger.info('get om id {}'.format(om.OMid))
+
             om.fill('usname', user_info[1])
             om.fill('USheader', user_info[2])
 
@@ -266,7 +270,7 @@ class COrder():
         res = [{'omstatus': k,
                 'omstatus_en': OrderStatus(k).name,
                 'omstatus_zh': OrderStatus(k).zh_value
-                } for k in (OrderStatus.pending.value,
+                } for k in (OrderStatus.pending.value, OrderStatus.has_won.value,
                             OrderStatus.completed.value, OrderStatus.cancle.value,
                             OrderStatus.not_won.value,)]
         return Success(data=res)
