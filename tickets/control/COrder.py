@@ -14,7 +14,7 @@ from tickets.config.enums import PayType, ProductStatus, UserCommissionStatus, A
 from tickets.config.http_config import API_HOST
 from tickets.config.timeformat import format_for_web_second, format_forweb_no_HMS
 from tickets.extensions.error_response import ParamsError, StatusError, AuthorityError
-from tickets.extensions.interface.user_interface import is_user, is_admin, token_required
+from tickets.extensions.interface.user_interface import is_user, is_admin, token_required, phone_required
 from tickets.extensions.make_qrcode import qrcodeWithtext
 from tickets.extensions.params_validates import parameter_required
 from tickets.extensions.register_ext import db, mini_wx_pay
@@ -79,6 +79,7 @@ class COrder():
             # todo 管理员确认中奖
         return self.wx_pay.reply("OK", True).decode()
 
+    @phone_required
     def pay(self):
         """购买"""
         data = parameter_required()
@@ -88,8 +89,8 @@ class COrder():
         except (ValueError, AttributeError, TypeError):
             raise ParamsError('支付方式错误')
 
-        if not is_user():
-            raise AuthorityError
+        # if not is_user():
+        #     raise AuthorityError
 
         user = self._current_user('请重新登录')
         opayno = self._opayno()
@@ -265,7 +266,7 @@ class COrder():
         res = [{'omstatus': k,
                 'omstatus_en': OrderStatus(k).name,
                 'omstatus_zh': OrderStatus(k).zh_value
-                } for k in (OrderStatus.wait_pay.value, OrderStatus.pending.value,
+                } for k in (OrderStatus.pending.value,
                             OrderStatus.completed.value, OrderStatus.cancle.value,
                             OrderStatus.not_won.value,)]
         return Success(data=res)
