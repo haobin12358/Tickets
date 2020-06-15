@@ -8,7 +8,8 @@ class AOthers(Resource):
 
     def get(self, string):
         apis = {
-            'get_params': self.other.get_params,
-            'location': self.other.get_location,  # 获取定位
+            'get_params': self.other.get_params,  # play/get_params
+            'location': self.other.get_location,  # news/location 获取定位
+            'list': self.other.brand_list,  # brand/list
         }
         return apis

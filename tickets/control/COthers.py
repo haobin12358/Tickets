@@ -53,3 +53,7 @@ class COthers:
             ul = UserLocation.create(result)
             db.session.add(ul)
         return ul.ULformattedAddress
+
+    @staticmethod
+    def brand_list():
+        return Success(data=[])

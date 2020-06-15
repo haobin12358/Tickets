@@ -712,6 +712,11 @@ class ActivationTypeEnum(Enum):
     sina = '910', 'sina微博信息绑定'
 
 
+class SupplizerGrade(Enum):
+    product = 0, '普通商品供应商'
+    ticket = 1, '门票供应商'
+
+
 if __name__ == '__main__':
     print(TemplateID('enterlog').zh_value)
     # import

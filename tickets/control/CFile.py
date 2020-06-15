@@ -33,8 +33,11 @@ class CFile(object):
         if not file:
             raise ParamsError(u'上传有误')
         file_data, video_thum, video_dur, upload_type = self._upload_file(file, folder)
-        return Success('上传成功', data={'url': file_data, 'video_thum': video_thum, 'video_dur': video_dur,
-                                     'upload_type': upload_type})
+        # return Success('上传成功', data={'url': file_data, 'video_thum': video_thum, 'video_dur': video_dur,
+        #                              'upload_type': upload_type})
+
+        return Success('上传成功', data=file_data).get_body(video_thum=video_thum, video_dur=video_dur,
+                                                        upload_type=upload_type)
 
     # @token_required
     def batch_upload(self):

@@ -1,9 +1,12 @@
+import json
 import os
+import uuid
 from datetime import datetime
 from flask import current_app, request
 from tickets.extensions.error_response import StatusError, ParamsError
-from tickets.extensions.register_ext import mp_miniprogram
+from tickets.extensions.register_ext import mp_miniprogram, db
 from tickets.extensions.weixin.mp import WeixinMPError
+from tickets.models import AdminActions
 
 
 class BaseController:
@@ -51,3 +54,21 @@ class BaseController:
             current_app.logger.info('error is {}'.format(e))
             current_app.logger.error('傻逼在发黄色图片  usid = {}'.format(getattr(request, 'user').id))
             raise ParamsError('{}可能存在违法违规等不良信息，请检查后重试'.format(msg))
+
+
+class BaseAdmin:
+    @staticmethod
+    def create_action(AAaction, AAmodel, AAkey):
+        detail = request.detail
+        detail['data'] = detail['data'].decode()
+
+        admin_action = {
+            'AAid': str(uuid.uuid1()),
+            'ADid': request.user.id,
+            'AAaction': AAaction,
+            'AAmodel': AAmodel,
+            'AAdetail': json.dumps(detail),
+            'AAkey': AAkey
+        }
+        aa_instance = AdminActions.create(admin_action)
+        db.session.add(aa_instance)
