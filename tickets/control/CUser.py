@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import re
 import uuid
 from decimal import Decimal
@@ -1049,3 +1049,35 @@ class CUser(object):
         if not admin:
             return 100000
         return admin.ADnum + 1
+
+    @admin_required
+    def user_data_overview(self):
+        """用户数概览"""
+        days = self._get_nday_list(7)
+        user_count, ip_count, uv_count = [], [], []
+        # user_count = db.session.query(*[func.count(cast(User.createtime, Date) <= day) for day in days]
+        #                               ).filter(User.isdelete == False).all()
+        for day in days:
+            ucount = User.query.filter(User.isdelete == false(),
+                                       cast(User.createtime, Date) <= day).count()
+            user_count.append(ucount)
+            ipcount = db.session.query(UserAccessApi.USTip).filter(UserAccessApi.isdelete == false(),
+                                                                   cast(UserAccessApi.createtime, Date) == day
+                                                                   ).group_by(UserAccessApi.USTip).count()
+            ip_count.append(ipcount)
+            uvcount = db.session.query(UserAccessApi.USid).filter(UserAccessApi.isdelete == false(),
+                                                                  cast(UserAccessApi.createtime, Date) == day
+                                                                  ).group_by(UserAccessApi.USid).count()
+            uv_count.append(uvcount)
+
+        series = [{'name': '用户数量', 'data': user_count},
+                  {'name': '独立ip', 'data': ip_count},
+                  {'name': 'uv', 'data': uv_count}]
+        return Success(data={'days': days, 'series': series})
+
+    @staticmethod
+    def _get_nday_list(n):
+        before_n_days = []
+        for i in range(n)[::-1]:
+            before_n_days.append(str(date.today() - timedelta(days=i)))
+        return before_n_days
