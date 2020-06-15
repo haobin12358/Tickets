@@ -657,7 +657,7 @@ class OrderStatus(Enum):
     not_won = -1, '未通过'
     wait_pay = 1, '待支付'
     pending = 2, '已申请'
-    has_won = 10, '获得试用'
+    has_won = 10, '可使用'
     completed = 20, '已使用'  # 2.0 修改取消二次押金
     accomplish = 30, '已完成'
 
