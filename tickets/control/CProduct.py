@@ -132,7 +132,7 @@ class CProduct(object):
                                                       OrderMain.OMid == tsoid).first()
         res = None
         if score_info:
-            res = {'tsoactivation': score_info[0],
+            res = {'tsoactivation': score_info[0] or 0,
                    'usheader': score_info[1] if score_info[1].startswith('http') else API_HOST + score_info[1],
                    'rank_zh': rank_zh}
         return res

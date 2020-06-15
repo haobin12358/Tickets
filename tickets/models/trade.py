@@ -25,11 +25,11 @@ class OrderMain(Base):
     OMmessage = Column(String(255), comment='留言')
     # 收货信息
     OMrecvPhone = Column(String(11), comment='收货电话')  # 前期无收货地址默认都是空
-    OMrecvName = Column(String(11),  comment='收货人姓名')  # 前期无收货地址默认都是空
+    OMrecvName = Column(String(11), comment='收货人姓名')  # 前期无收货地址默认都是空
     OMrecvAddress = Column(String(255), comment='地址')  # 前期无收货地址默认都是空
     PRcreateId = Column(String(64), comment='发布者id')  # 为商品所属供应商id, 无表示平台
     OMlogisticType = Column(Integer, default=0, comment='发货类型 0 正常发货, 10线上发货(无物流)')  # 前期只有线上发货 默认都是10
-    OMintegralpayed = Column(Integer, comment='获得的活跃分')
+    OMintegralpayed = Column(Integer, default=0, comment='获得的活跃分')
     OMpayType = Column(Integer, default=2, comment='支付方式 2 直购 3 活跃分')
     # 上级
     UPperid = Column(String(64), comment='上级id')  # 方便查询下级
