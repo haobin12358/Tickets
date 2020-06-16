@@ -75,7 +75,7 @@ class COrder():
                 om.OMstatus = OrderStatus.pending.value
             elif om.OMpayType == PayType.cash.value:  # 直接买
                 om.OMstatus = OrderStatus.has_won.value
-                om.OMqrcode = self._ticket_order_qrcode(om.PRid, om.USid)
+                om.OMqrcode = self._ticket_order_qrcode(om.OMid, om.USid)
             # todo 管理员确认中奖
         return self.wx_pay.reply("OK", True).decode()
 
@@ -156,8 +156,8 @@ class COrder():
             db.session.add(om)
         body = product.PRname[:16] + '...'
         openid = user.USopenid1
-        # 30分钟 自动取消
-        add_async_task(auto_cancle_order, now + timedelta(minutes=30), (omid,), conn_id='autocancle{}'.format(omid))
+        # 1分钟 自动取消
+        add_async_task(auto_cancle_order, now + timedelta(minutes=1), (omid,), conn_id='autocancle{}'.format(omid))
         pay_args = self._add_pay_detail(opayno=opayno, body=body, mount_price=mount_price, openid=openid,
                                         opayType=ompaytype, redirect=redirect)
         response = {
@@ -585,16 +585,16 @@ class COrder():
         c = (c + "0" * n)[:n]
         return Decimal(".".join([a, c]))
 
-    def _ticket_order_qrcode(self, prid, usid):
+    def _ticket_order_qrcode(self, omid, usid):
         """创建票二维码"""
         from .CUser import CUser
         cuser = CUser()
         savepath, savedbpath = cuser._get_path('qrcode')
         secret_usid = cuser._base_encode(usid)
-        filename = os.path.join(savepath, '{}.png'.format(prid))
-        filedbname = os.path.join(savedbpath, '{}.png'.format(prid))
+        filename = os.path.join(savepath, '{}.png'.format(omid))
+        filedbname = os.path.join(savedbpath, '{}.png'.format(omid))
         current_app.logger.info('get basedir {0}'.format(current_app.config['BASEDIR']))
-        text = 'prid={}&secret={}'.format(prid, secret_usid)
+        text = 'omid={}&secret={}'.format(omid, secret_usid)
         current_app.logger.info('get text content {0}'.format(text))
         qrcodeWithtext(text, filename)
 
