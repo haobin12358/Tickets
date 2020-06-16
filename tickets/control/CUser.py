@@ -13,9 +13,9 @@ from tickets.common.default_head import GithubAvatarGenerator
 from tickets.common.id_check import DOIDCheck
 from tickets.config.enums import MiniUserGrade, ApplyFrom, ActivationTypeEnum, UserLoginTimetype, \
     AdminLevel, AdminStatus, AdminAction, AdminActionS, UserStatus, ApprovalAction, OrderStatus, PayType, \
-    UserCommissionStatus
+    UserCommissionStatus, WXLoginFrom
 from tickets.config.secret import MiniProgramAppId, MiniProgramAppSecret
-from tickets.control.BaseControl import BaseController, BaseAdmin
+from tickets.control.BaseControl import BaseController, BaseAdmin, BaseApproval
 from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError, NotFound, \
     InsufficientConditionsError, AuthorityError, StatusError
 from tickets.extensions.interface.user_interface import token_required, phone_required, is_admin, is_supplizer, is_user, \
@@ -34,6 +34,7 @@ from tickets.models import User, SharingParameters, UserLoginTime, UserWallet, P
 
 class CUser(object):
     base_admin = BaseAdmin()
+    base_approval = BaseApproval()
 
     @staticmethod
     def _decrypt_encrypted_user_data(encrypteddata, session_key, iv):
@@ -567,7 +568,7 @@ class CUser(object):
             current_app.logger.info('提现金额为 {0}  实际余额为 {1}'.format(cncashnum, balance))
             raise ParamsError('提现金额超出余额')
         elif not (0.30 <= cncashnum <= 5000):
-            raise ParamsError('当前测试版本单次可提现范围(0.30 ~ 5000元)')
+            raise ParamsError('单次可提现范围(0.30 ~ 5000元)')
 
         uw.UWcash = Decimal(str(uw.UWcash)) - Decimal(cncashnum)
         kw = {}
@@ -593,21 +594,19 @@ class CUser(object):
         else:
             user = User.query.filter(User.USid == request.user.id, User.isdelete == False).first()
 
-        #     cn = CashNotes.create({
-        #         'CNid': str(uuid.uuid1()),
-        #         'USid': user.USid,
-        #         'CNcashNum': Decimal(cncashnum).quantize(Decimal('0.00')),
-        #         'CommisionFor': commision_for
-        #     })
-        #     if str(applyplatform) == str(WXLoginFrom.miniprogram.value):
-        #         setattr(cn, 'ApplyPlatform', WXLoginFrom.miniprogram.value)
-        # db.session.add(cn)
-        # if is_admin():
-        #     BASEADMIN().create_action(AdminActionS.insert.value, 'CashNotes', str(uuid.uuid1()))
-        # db.session.flush()
-        # # 创建审批流
-        #
-        # self.create_approval('tocash', request.user.id, cn.CNid, commision_for, **kw)
+            cn = CashNotes.create({
+                'CNid': str(uuid.uuid1()),
+                'USid': user.USid,
+                'CNcashNum': Decimal(cncashnum).quantize(Decimal('0.00')),
+                'CommisionFor': commision_for,
+                'ApplyPlatform': WXLoginFrom.miniprogram.value
+            })
+
+        db.session.add(cn)
+        db.session.flush()
+        # 创建审批流
+
+        self.base_approval.create_approval('tocash', request.user.id, cn.CNid, commision_for, **kw)
         return Success('已成功提交提现申请， 我们将在3个工作日内完成审核，请及时关注您的账户余额')
 
     def __check_apply_cash(self, commision_for):
