@@ -16,7 +16,8 @@ from tickets.extensions.interface.user_interface import admin_required, is_admin
 from tickets.extensions.params_validates import parameter_required, validate_arg, validate_price
 from tickets.extensions.register_ext import db, qiniu_oss
 from tickets.extensions.success_response import Success
-from tickets.models import Supplizer, Product, User, Agreement, OrderMain, UserInvitation, SharingType
+from tickets.models import Supplizer, Product, User, Agreement, OrderMain, UserInvitation, SharingType, ProductVerifier, \
+    ProductVerifiedRecord
 
 
 class CProduct(object):
@@ -365,13 +366,45 @@ class CProduct(object):
         data = parameter_required('param')
         param = data.get('param')
         try:
-            prid, secret_usid = str(param).split('&')
+            omid, secret_usid = str(param).split('&')
         except ValueError:
             raise ParamsError('试用码无效')
+        current_app.logger.info('omid: {}, secret_usid: {}'.format(omid, secret_usid))
+        omid = str(omid).split('=')[-1]
+        secret_usid = str(secret_usid).split('=')[-1]
+        current_app.logger.info('splited, omid: {}, secret_usid: {}'.format(omid, secret_usid))
+        if not omid or not secret_usid:
+            raise StatusError('该试用码无效')
+        ticket_usid = self.cuser._base_decode(secret_usid)
+        ticket_user = User.query.filter(User.isdelete == false(),
+                                        User.USid == ticket_usid).first_('无效试用码')
+        om = OrderMain.query.filter(OrderMain.isdelete == false(),
+                                    OrderMain.OMid == omid).first_('订单状态异常')
+        if om.OMstatus != OrderStatus.has_won.value:
+            current_app.logger.error('om status: {}'.format(om.TSOstatus))
+            raise StatusError('该已使用')
+        pr = Product.query.filter(Product.PRid == om.PRid).first()
+        if pr.PRtimeLimeted and (pr.PRuseStartTime <= datetime.now() <= pr.PRuseEndTime):
+            raise StatusError('当前时间不在该券有效使用时间内')
 
-        # todo
+        user = User.query.join(ProductVerifier, ProductVerifier.PVphone == User.UStelphone
+                               ).join(Product, Product.SUid == ProductVerifier.SUid
+                                      ).filter(User.isdelete == false(), User.USid == getattr(request, 'user').id,
+                                               ProductVerifier.SUid == pr.SUid
+                                               ).first_('请确认您是否拥有该券的核销权限')
 
-        return Success('门票验证成功', data='sdafsdagq2903217u45r8qfasdklh')
+        with db.auto_commit():
+            # 订单改状态
+            om.update({'OMstatus': OrderStatus.completed.value})
+            db.session.add(om)
+            # 核销记录
+            tvr = ProductVerifiedRecord.create({'PVRid': str(uuid.uuid1()),
+                                                'ownerId': ticket_user.USid,
+                                                'VerifierId': user.USid,
+                                                'OMid': om.OMid,
+                                                'param': param})
+            db.session.add(tvr)
+        return Success('二维码验证成功', data=tvr.PVRid)
 
     def _check_time(self, time_model, fmt='%Y/%m/%d'):
         if isinstance(time_model, datetime):

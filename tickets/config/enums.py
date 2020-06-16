@@ -658,8 +658,8 @@ class OrderStatus(Enum):
     wait_pay = 1, '待支付'
     pending = 2, '已申请'
     has_won = 10, '可使用'
-    completed = 20, '已使用'  # 2.0 修改取消二次押金
-    accomplish = 30, '已完成'
+    completed = 20, '已使用'
+    accomplish = 30, '已完成'  # 暂时无用
 
 
 class RoleType(Enum):
