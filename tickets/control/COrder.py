@@ -606,6 +606,32 @@ class COrder():
                 current_app.logger.error('二维码转存七牛云失败 ： {}'.format(e))
         return filedbname
 
+    def product_score_award(self, product):
+        if not product:
+            return
+        count = 0
+        oms = OrderMain.query.filter(OrderMain.isdelete == false(), OrderMain.PRid == product.PRid,
+                                     OrderMain.OMstatus == OrderStatus.pending.value,
+                                     OrderMain.OMpayType == PayType.scorepay.value,
+                                     ).order_by(OrderMain.OMintegralpayed.desc(),
+                                                OrderMain.createtime.desc()).limit(product.PRnum).all()
+        omids = []
+        for om in oms:
+            omids.append(om.OMid)
+            om.OMstatus = OrderStatus.has_won.value
+            om.OMqrcode = self._ticket_order_qrcode(om.OMid, om.USid)
+        # 未中的
+        not_won_oms = OrderMain.query.filter(OrderMain.isdelete == false(),
+                                             OrderMain.OMid.notin_(omids),
+                                             OrderMain.PRid == product.PRid,
+                                             OrderMain.OMstatus == OrderStatus.pending.value,
+                                             OrderMain.OMpayType == PayType.scorepay.value).all()
+        for nom in not_won_oms:
+            nom.OMstatus = OrderStatus.not_won.value
+            current_app.logger.info('not won order, omid: {}'.format(nom.OMid))
+            count += 1
+        current_app.logger.info('总名额: {}, 中签数: {}, 未中数: {}'.format(product.PRnum, len(oms), count))
+
     @staticmethod
     def _current_user(msg=None):
         return User.query.filter(User.isdelete == false(), User.USid == getattr(request, 'user').id).first_(msg)

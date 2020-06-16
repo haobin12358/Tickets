@@ -690,7 +690,7 @@ class PayType(Enum):
     """购票支付类型"""
     deposit = 1, '押金购'
     cash = 2, '直购'
-    scorepay = 3, '支付分'
+    scorepay = 3, '活跃分'
 
 
 class ShareType(Enum):

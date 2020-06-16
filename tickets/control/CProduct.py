@@ -6,8 +6,9 @@ from sqlalchemy import false, func, cast, Date
 
 from tickets.common.playpicture import PlayPicture
 from tickets.config.enums import UserStatus, ProductStatus, ShareType, RoleType, OrderStatus, PayType, \
-    ActivationTypeEnum
+    ActivationTypeEnum, AdminActionS
 from tickets.config.http_config import API_HOST
+from tickets.control.BaseControl import BaseAdmin
 from tickets.control.CActivation import CActivation
 from tickets.control.CUser import CUser
 from tickets.extensions.error_response import ParamsError, AuthorityError, StatusError
@@ -16,6 +17,7 @@ from tickets.extensions.interface.user_interface import admin_required, is_admin
 from tickets.extensions.params_validates import parameter_required, validate_arg, validate_price
 from tickets.extensions.register_ext import db, qiniu_oss
 from tickets.extensions.success_response import Success
+from tickets.extensions.tasks import add_async_task, start_product, end_product, cancel_async_task
 from tickets.models import Supplizer, Product, User, Agreement, OrderMain, UserInvitation, SharingType, ProductVerifier, \
     ProductVerifiedRecord
 
@@ -23,6 +25,7 @@ from tickets.models import Supplizer, Product, User, Agreement, OrderMain, UserI
 class CProduct(object):
     cuser = CUser()
     cactivation = CActivation()
+    base_admin = BaseAdmin()
 
     def list_product(self):
         """商品列表"""
@@ -216,14 +219,12 @@ class CProduct(object):
                                  })
             product = Product.create(product_dict)
             db.session.add(product)
-        # if product.PRtimeLimeted:
-
-        # todo 分限时 不 限时
-        # 异步任务: 开始
-        # self._create_celery_task(ticket.TIid, ticket_dict.get('TIstartTime'))
-        # # 异步任务: 结束
-        # self._create_celery_task(ticket.TIid, ticket_dict.get('TIendTime'), start=False)
-        # self.BaseAdmin.create_action(AdminActionS.insert.value, 'Ticket', ticket.TIid)
+        if product.PRtimeLimeted:  # 限时商品，添加异步任务
+            add_async_task(func=start_product, start_time=product.PRissueStartTime, func_args=(product.PRid,),
+                           conn_id='start_product{}'.format(product.PRid))
+            add_async_task(func=end_product, start_time=product.PRissueEndTime, func_args=(product.PRid,),
+                           conn_id='end_product{}'.format(product.PRid))
+        self.base_admin.create_action(AdminActionS.insert.value, 'Product', product.PRid)
         return Success('创建成功', data={'prid': product.PRid})
 
     @token_required
@@ -246,15 +247,17 @@ class CProduct(object):
                                           OrderMain.PRid == product.PRid).first():
                     raise StatusError('暂时无法直接删除已产生购买记录的商品')
                 product.update({'isdelete': True})
-                # self._cancle_celery_task('start_ticket{}'.format(ticket.TIid))
-                # self._cancle_celery_task('end_ticket{}'.format(ticket.TIid))
-                # self.BaseAdmin.create_action(AdminActionS.delete.value, 'Ticket', ticket.TIid)
+                # 取消异步任务
+                cancel_async_task('start_product{}'.format(product.PRid))
+                cancel_async_task('end_product{}'.format(product.PRid))
+                self.base_admin.create_action(AdminActionS.delete.value, 'Product', product.PRid)
             elif data.get('interrupt'):
                 if product.PRstatus > ProductStatus.active.value:
                     raise StatusError('该状态下无法中止')
                 product.update({'PRstatus': ProductStatus.interrupt.value})
-            # self._cancle_celery_task('start_ticket{}'.format(ticket.TIid))
-            # self._cancle_celery_task('end_ticket{}'.format(ticket.TIid))
+                cancel_async_task('start_product{}'.format(product.PRid))
+                cancel_async_task('end_product{}'.format(product.PRid))
+                self.base_admin.create_action(AdminActionS.update.value, 'Product', product.PRid)
             else:
                 if product.PRstatus < ProductStatus.interrupt.value:
                     raise ParamsError('仅可编辑已中止发放或已结束的商品')
@@ -265,21 +268,23 @@ class CProduct(object):
                                      'PRstatus': ProductStatus.ready.value if product_dict.get(
                                          'PRtimeLimeted') else ProductStatus.active.value
                                      })
-                # todo
                 if product.PRstatus == ProductStatus.interrupt.value:  # 中止的情况
                     current_app.logger.info('edit interrupt ticket')
                     product.update(product_dict, null='not')
                 else:  # 已结束的情况，重新发起
                     current_app.logger.info('edit ended ticket')
                     product_dict.update({'PRid': str(uuid.uuid1()),
-                                         'CreatorId': getattr(request, 'user').id})
+                                         'CreatorId': getattr(request, 'user').id,
+                                         'CreatorType': getattr(request, 'user').model})
                     product = Product.create(product_dict)
-                # self._cancle_celery_task('start_ticket{}'.format(ticket.TIid))
-                # self._cancle_celery_task('end_ticket{}'.format(ticket.TIid))
-                # self._create_celery_task(ticket.TIid, ticket_dict.get('TIstartTime'))
-                # self._create_celery_task(ticket.TIid, ticket_dict.get('TIendTime'), start=False)
+                cancel_async_task('start_product{}'.format(product.PRid))
+                cancel_async_task('end_product{}'.format(product.PRid))
+                add_async_task(func=start_product, start_time=product.PRissueStartTime, func_args=(product.PRid,),
+                               conn_id='start_product{}'.format(product.PRid))
+                add_async_task(func=end_product, start_time=product.PRissueEndTime, func_args=(product.PRid,),
+                               conn_id='end_product{}'.format(product.PRid))
+                self.base_admin.create_action(AdminActionS.insert.value, 'Product', product.PRid)
             db.session.add(product)
-            # self.BaseAdmin.create_action(AdminActionS.update.value, 'Ticket', ticket.TIid)
         return Success('编辑成功', data={'prid': product.PRid})
 
     def _validate_ticket_param(self, data):
