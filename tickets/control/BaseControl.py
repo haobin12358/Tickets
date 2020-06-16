@@ -5,12 +5,12 @@ from datetime import datetime
 from flask import current_app, request
 
 from tickets.extensions.base_jsonencoder import JSONEncoder
-from tickets.config.enums import PermissionType, ApplyStatus, ApplyFrom, ApprovalAction
+from tickets.config.enums import ApplyStatus, ApplyFrom, ApprovalAction
 from tickets.extensions.error_response import StatusError, ParamsError
 from tickets.extensions.register_ext import mp_miniprogram, db
 from tickets.extensions.weixin.mp import WeixinMPError
 from tickets.models import AdminActions, Supplizer, Admin, User, CashNotes, UserWallet
-from tickets.models.approval import Approval, ApprovalNotes
+from tickets.models.approval import Approval, ApprovalNotes, PermissionType
 
 
 class BaseController:

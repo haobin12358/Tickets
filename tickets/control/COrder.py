@@ -187,6 +187,26 @@ class COrder():
         self._cancle(order_main)
         return Success('取消成功')
 
+    def pay_to_user(self, cn):
+        """
+        付款到用户微信零钱
+        :return:
+        """
+        user = User.query.filter_by_(USid=cn.USid).first_("提现用户状态异常，请检查后重试")
+        try:
+            result = self.wx_pay.pay_individual(
+                partner_trade_no=self.wx_pay.nonce_str,
+                openid=user.USopenid2,
+                amount=int(Decimal(cn.CNcashNum).quantize(Decimal('0.00')) * 100),
+                desc="零钱转出",
+                spbill_create_ip=self.wx_pay.remote_addr
+            )
+            current_app.logger.info('微信提现到零钱, response: {}'.format(request))
+        except Exception as e:
+            current_app.logger.error('微信提现返回错误：{}'.format(e))
+            raise StatusError('微信商户平台: {}'.format(e))
+        return result
+
     def list(self):
         data = parameter_required()
         omstatus = data.get('omstatus')

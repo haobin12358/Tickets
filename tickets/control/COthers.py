@@ -86,8 +86,5 @@ class COthers:
             current_app.logger.info('非法类型 {}'.format(amtype))
             raise ParamsError('规则不存在')
 
-    def get_dealing_approval(self):
-        return Success(data=[])
-
     def travelrecord_list(self):
         return Success(data={'top': None, 'travelrecord': []})
