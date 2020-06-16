@@ -20,14 +20,14 @@ from tickets.extensions.interface.user_interface import admin_required, is_admin
 from tickets.extensions.params_validates import parameter_required
 from tickets.extensions.register_ext import db
 from tickets.extensions.success_response import Success
-from tickets.models import Supplizer, UserWallet, Admin, ProductVerifier
+from tickets.models import Supplizer, UserWallet, Admin, ProductVerifier, User
 
 
 class CSupplizer:
     def __init__(self):
         self.base_admin = BaseAdmin()
 
-    @admin_required
+    @token_required
     def list(self):
         """供应商列表"""
         form = SupplizerListForm().valid_data()
@@ -93,7 +93,11 @@ class CSupplizer:
     @staticmethod
     def _list_ticket_sup():
         sups = Supplizer.query.filter(Supplizer.isdelete == false(), Supplizer.SUstatus == UserStatus.usual.value,
-                                      Supplizer.SUgrade == SupplizerGrade.ticket.value).all_with_page()
+                                      Supplizer.SUgrade == SupplizerGrade.ticket.value)
+        if is_supplizer():
+            sups = sups.filter(Supplizer.SUid == getattr(request, 'user').id)
+        sups = sups.all_with_page()
+
         for sup in sups:
             sup.fields = ['SUid', 'SUname', 'SUgrade', 'SUstatus']
             sup.fill('sustatus_zh', UserStatus(sup.SUstatus).zh_value)
@@ -395,6 +399,7 @@ class CSupplizer:
         phone_list = {}.fromkeys(phone_list).keys()
         with db.auto_commit():
             for phone in phone_list:
+                User.query.filter(User.isdelete == false(), User.UStelephone == phone).first_(f'没有手机号为 {phone} 用户 ')
                 tv = ProductVerifier.query.filter_by(SUid=suid, PVphone=phone).first()
                 if not tv:
                     tv = ProductVerifier.create({

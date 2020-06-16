@@ -31,5 +31,6 @@ class AUser(Resource):
             'add_admin_by_superadmin': self.cuser.add_admin_by_superadmin,  # 添加管理员
             'update_admin': self.cuser.update_admin,  # 更新管理员信息
             'update_admin_password': self.cuser.update_admin_password,  # 修改管理员密码
+            'supplizer_login': self.cuser.supplizer_login,  # 供应商登录
         }
         return apis

@@ -12,11 +12,11 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from tickets.common.default_head import GithubAvatarGenerator
 from tickets.common.id_check import DOIDCheck
 from tickets.config.enums import MiniUserGrade, ApplyFrom, ActivationTypeEnum, UserLoginTimetype, \
-    AdminLevel, AdminStatus, AdminAction, AdminActionS
+    AdminLevel, AdminStatus, AdminAction, AdminActionS, UserStatus
 from tickets.config.secret import MiniProgramAppId, MiniProgramAppSecret
 from tickets.control.BaseControl import BaseController, BaseAdmin
 from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError, NotFound, \
-    InsufficientConditionsError, AuthorityError
+    InsufficientConditionsError, AuthorityError, StatusError
 from tickets.extensions.interface.user_interface import token_required, phone_required, is_admin, is_supplizer, is_user, \
     get_current_admin, admin_required
 from tickets.extensions.params_validates import parameter_required, validate_arg
@@ -27,7 +27,8 @@ from tickets.extensions.token_handler import usid_to_token
 from tickets.extensions.weixin import WeixinLogin
 from tickets.extensions.weixin.mp import WeixinMPError
 from tickets.models import User, SharingParameters, UserLoginTime, UserWallet, ProductVerifier, AddressProvince, \
-    AddressArea, AddressCity, IDCheck, UserMedia, UserInvitation, Admin, AdminNotes, UserAccessApi, UserCommission
+    AddressArea, AddressCity, IDCheck, UserMedia, UserInvitation, Admin, AdminNotes, UserAccessApi, UserCommission, \
+    Supplizer
 
 
 class CUser(object):
@@ -1025,6 +1026,29 @@ class CUser(object):
     def update_admin_by_filter(self, ad_and_filter, ad_or_filter, adinfo):
         return Admin.query.filter_(
             and_(*ad_and_filter), or_(*ad_or_filter), Admin.isdelete == False).update(adinfo)
+
+    def supplizer_login(self):
+        """供应商登录"""
+        # 手机号登录
+        data = parameter_required({'mobile': '账号', 'password': '密码'})
+        mobile = data.get('mobile')
+        password = data.get('password')
+        supplizer = Supplizer.query.filter_by_({'SUloginPhone': mobile}).first_()
+
+        if not supplizer:
+            raise NotFound('登录账号错误')
+        elif not supplizer.SUpassword:
+            raise StatusError('账号正在审核中，请耐心等待')
+        elif not check_password_hash(supplizer.SUpassword, password):
+            raise StatusError('密码错误')
+        elif supplizer.SUstatus == UserStatus.forbidden.value:
+            raise StatusError('该账号已被冻结, 详情请联系管理员')
+        jwt = usid_to_token(supplizer.SUid, 'Supplizer', username=supplizer.SUname)  # 供应商jwt
+        supplizer.fields = ['SUlinkPhone', 'SUheader', 'SUname', 'SUgrade']
+        return Success('登录成功', data={
+            'token': jwt,
+            'supplizer': supplizer
+        })
 
     def __check_password(self, password):
         if not password or len(password) < 4:

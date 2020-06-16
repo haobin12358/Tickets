@@ -202,7 +202,7 @@ class COrder():
                 omstatus = OrderStatus.pending.value
             filter_args.append(OrderMain.USid == user.USid)
             filter_args.append(OrderMain.OMstatus == omstatus)
-        elif is_admin():
+        else:
             if omstatus:
                 try:
                     omstatus = OrderStatus(int(str(omstatus))).value
@@ -227,6 +227,8 @@ class COrder():
                 filter_args.append(OrderMain.OMno.ilike('%{}%'.format(omno)))
             if prname:
                 filter_args.append(OrderMain.PRname.ilike('%{}%'.format(prname)))
+            if is_supplizer():
+                filter_args.append(OrderMain.PRcreateId == getattr(request, 'user').id)
         omlist = OrderMain.query.filter(*filter_args).order_by(*order_by_list).all_with_page()
 
         now = datetime.now()

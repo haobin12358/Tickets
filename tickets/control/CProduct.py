@@ -25,9 +25,9 @@ class CProduct(object):
 
     def list_product(self):
         """商品列表"""
-        args = request.args.to_dict()
+        # args = request.args.to_dict()
         filter_args = []
-        if not is_admin():
+        if not (is_admin() or is_supplizer()):
             filter_args.append(Product.PRstatus != ProductStatus.interrupt.value)
         if is_supplizer():
             filter_args.append(Product.SUid == getattr(request, 'user').id)
@@ -38,7 +38,7 @@ class CProduct(object):
                                                    Product.createtime.desc()).all_with_page()
         products_fields = ['PRid', 'PRname', 'PRimg', 'PRlinePrice', 'PRtruePrice', 'PRnum', 'PRtimeLimeted',
                            'PRstatus', 'prstatus_zh', 'apply_num', 'PRissueStartTime', 'PRissueEndTime',
-                           'PRuseStartTime', 'PRuseEndTime']
+                           'PRuseStartTime', 'PRuseEndTime', 'interrupt']
         for product in products:
             self._fill_product(product)
             product.fields = products_fields
@@ -58,8 +58,9 @@ class CProduct(object):
         return Success(data=product)
 
     def _fill_product(self, product):
-        product.hide('CreatorId', 'CreatorType', 'SUid')
+        product.hide('CreatorId', 'CreatorType')
         product.fill('prstatus_zh', ProductStatus(product.PRstatus).zh_value)
+        product.fill('interrupt', False if product.PRstatus < ProductStatus.interrupt.value else True)  # 是否中止
         now = datetime.now()
         countdown = None
         if product.PRtimeLimeted:
@@ -266,7 +267,7 @@ class CProduct(object):
                 # todo
                 if product.PRstatus == ProductStatus.interrupt.value:  # 中止的情况
                     current_app.logger.info('edit interrupt ticket')
-                    product.update(product_dict)
+                    product.update(product_dict, null='not')
                 else:  # 已结束的情况，重新发起
                     current_app.logger.info('edit ended ticket')
                     product_dict.update({'PRid': str(uuid.uuid1()),
