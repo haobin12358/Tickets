@@ -367,8 +367,10 @@ class CProduct(object):
         param = data.get('param')
         try:
             omid, secret_usid = str(param).split('&')
+            if not omid.startswith('omid'):
+                raise ValueError
         except ValueError:
-            raise ParamsError('试用码无效')
+            raise ParamsError('该二维码无效')
         current_app.logger.info('omid: {}, secret_usid: {}'.format(omid, secret_usid))
         omid = str(omid).split('=')[-1]
         secret_usid = str(secret_usid).split('=')[-1]
