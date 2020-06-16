@@ -6,13 +6,14 @@ from decimal import Decimal
 
 import requests
 from flask import current_app, request
-from sqlalchemy import false, cast, Date, and_, or_, func
+from sqlalchemy import false, cast, Date, and_, or_, func, extract
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from tickets.common.default_head import GithubAvatarGenerator
 from tickets.common.id_check import DOIDCheck
 from tickets.config.enums import MiniUserGrade, ApplyFrom, ActivationTypeEnum, UserLoginTimetype, \
-    AdminLevel, AdminStatus, AdminAction, AdminActionS, UserStatus
+    AdminLevel, AdminStatus, AdminAction, AdminActionS, UserStatus, ApprovalAction, OrderStatus, PayType, \
+    UserCommissionStatus
 from tickets.config.secret import MiniProgramAppId, MiniProgramAppSecret
 from tickets.control.BaseControl import BaseController, BaseAdmin
 from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError, NotFound, \
@@ -28,7 +29,7 @@ from tickets.extensions.weixin import WeixinLogin
 from tickets.extensions.weixin.mp import WeixinMPError
 from tickets.models import User, SharingParameters, UserLoginTime, UserWallet, ProductVerifier, AddressProvince, \
     AddressArea, AddressCity, IDCheck, UserMedia, UserInvitation, Admin, AdminNotes, UserAccessApi, UserCommission, \
-    Supplizer
+    Supplizer, CashNotes, OrderMain
 
 
 class CUser(object):
@@ -429,30 +430,12 @@ class CUser(object):
         uw = UserWallet.query.filter(UserWallet.USid == user.USid).first()
         if not uw:
             user.fill('usbalance', 0)
-            # user.fill('ustotal', 0)
-            # user.fill('uscash', 0)
+            user.fill('ustotal', 0)
+            user.fill('uscash', 0)
         else:
             user.fill('usbalance', uw.UWbalance or 0)
-            # user.fill('ustotal', uw.UWtotal or 0)
-            # user.fill('uscash', uw.UWcash or 0)
-        # todo 佣金部分
-        # ucs = UserCommission.query.filter(
-        #     UserCommission.USid == user.USid,
-        #     UserCommission.UCstatus == UserCommissionStatus.preview.value,
-        #     UserCommission.isdelete == False).all()
-        # uc_total = sum([Decimal(str(uc.UCcommission)) for uc in ucs])
-        #
-        # uswithdrawal = db.session.query(func.sum(CashNotes.CNcashNum)
-        #                                 ).filter(CashNotes.USid == user.USid,
-        #                                          CashNotes.isdelete == False,
-        #                                          CashNotes.CNstatus == ApprovalAction.submit.value
-        #                                          # CashNotes.CNstatus.in_([CashStatus.submit.value,
-        #                                          #                        CashStatus.agree.value])
-        #                                          ).scalar()
-        #
-        # user.fill('uswithdrawal', uswithdrawal or 0)
-        #
-        # user.fill('usexpect', float('%.2f' % uc_total))
+            user.fill('ustotal', uw.UWtotal or 0)
+            user.fill('uscash', uw.UWcash or 0)
 
     @phone_required
     def my_wallet(self):
@@ -464,49 +447,95 @@ class CUser(object):
             raise ParamsError('date 格式错误')
         year, month = str(date).split('-') if date else (datetime.now().year, datetime.now().month)
 
-        # todo mock data
-        # transactions = [{
-        #     "amount": "-¥3.05",
-        #     "time": "2019-07-01 16:38:29",
-        #     "title": "西安-宝鸡-咸阳·二日"
-        # }]
-        # total = '-3.05'
-        # uwcash = 11
-        transactions = [
-        ]
-        total = '0'
-        uwcash = 0
         if option == 'expense':  # 消费记录
-            # transactions, total = self._get_transactions(user, year, month, args)
+            transactions, total = self._get_transactions(user, year, month)
             pass
         elif option == 'withdraw':  # 提现记录
-            # transactions, total = self._get_withdraw(user, year, month)
-            pass
+            transactions, total = self._get_withdraw(user, year, month)
         elif option == 'commission':  # 佣金收入
-            pass
+            transactions, total = self._get_commission(user, year, month)
         else:
             raise ParamsError('type 参数错误')
-        # user_wallet = UserWallet.query.filter(UserWallet.isdelete == false(), UserWallet.USid == user.USid).first()
-        # if user_wallet:
-        #     uwcash = user_wallet.UWcash
-        # else:
-        #     with db.auto_commit():
-        #         user_wallet_instance = UserWallet.create({
-        #             'UWid': str(uuid.uuid1()),
-        #             'USid': user.USid,
-        #             'CommisionFor': ApplyFrom.user.value,
-        #             'UWbalance': Decimal('0.00'),
-        #             'UWtotal': Decimal('0.00'),
-        #             'UWcash': Decimal('0.00'),
-        #             'UWexpect': Decimal('0.00')
-        #         })
-        #         db.session.add(user_wallet_instance)
-        #         uwcash = 0
+        user_wallet = UserWallet.query.filter(UserWallet.isdelete == false(), UserWallet.USid == user.USid).first()
+        if user_wallet:
+            uwcash = user_wallet.UWcash
+        else:
+            with db.auto_commit():
+                user_wallet_instance = UserWallet.create({
+                    'UWid': str(uuid.uuid1()),
+                    'USid': user.USid,
+                    'CommisionFor': ApplyFrom.user.value,
+                    'UWbalance': Decimal('0.00'),
+                    'UWtotal': Decimal('0.00'),
+                    'UWcash': Decimal('0.00'),
+                    'UWexpect': Decimal('0.00')
+                })
+                db.session.add(user_wallet_instance)
+            uwcash = 0
         response = {'uwcash': uwcash,
                     'transactions': transactions,
                     'total': total
                     }
-        return Success(data=response).get_body(total_count=1, total_page=1)
+        return Success(data=response)
+
+    @staticmethod
+    def _get_transactions(user, year, month):
+        order_mains = db.session.query(OrderMain.PRname, OrderMain.createtime,
+                                       OrderMain.OMtrueMount, OrderMain.OMpayType
+                                       ).filter(OrderMain.isdelete == false(),
+                                                OrderMain.USid == user.USid,
+                                                OrderMain.OMstatus > OrderStatus.wait_pay.value,
+                                                extract('month', OrderMain.createtime) == month,
+                                                extract('year', OrderMain.createtime) == year
+                                                ).order_by(OrderMain.createtime.desc(), origin=True
+                                                           ).all_with_page()
+        transactions = [{'title': f'{"[活跃分申请] " if i[3] == PayType.scorepay.value else "[购买] "}' + i[0],
+                         'time': i[1],
+                         'amount': i[2],
+                         } for i in order_mains if i[0] is not None]
+        total = sum(i.get('amount', 0) for i in transactions)
+
+        for item in transactions:
+            item['amount'] = '- ¥{}'.format(item['amount']) if item['amount'] != 0 else '  ¥{}'.format(item['amount'])
+        total = ' ¥{}'.format(total) if total == 0 else ' - ¥{}'.format(-total)
+        return transactions, total
+
+    @staticmethod
+    def _get_withdraw(user, year, month):
+        res = db.session.query(CashNotes.CNstatus, CashNotes.createtime, CashNotes.CNcashNum
+                               ).filter(CashNotes.isdelete == false(), CashNotes.USid == user.USid,
+                                        extract('month', CashNotes.createtime) == month,
+                                        extract('year', CashNotes.createtime) == year
+                                        ).order_by(CashNotes.createtime.desc(), origin=True).all_with_page()
+        withdraw = [{'title': ApprovalAction(i[0]).zh_value, 'time': i[1], 'amount': i[2]}
+                    for i in res if i[0] is not None]
+        total = sum(i.get('amount', 0) for i in withdraw)
+        for item in withdraw:
+            item['amount'] = '¥{}'.format(item['amount'])
+        total = ' ¥{}'.format(total)
+        return withdraw, total
+
+    @staticmethod
+    def _get_commission(user, year, month):
+        res = db.session.query(UserCommission.PRname, UserCommission.createtime,
+                               UserCommission.UCcommission, UserCommission.UCstatus
+                               ).filter(UserCommission.isdelete == false(),
+                                        UserCommission.USid == user.USid,
+                                        UserCommission.UCstatus > UserCommissionStatus.preview.value,
+                                        extract('month', UserCommission.createtime) == month,
+                                        extract('year', UserCommission.createtime) == year
+                                        ).order_by(UserCommission.createtime.desc(),
+                                                   origin=True).all_with_page()
+        commission = [{'title': UserCommissionStatus(i[3]).zh_value + i[0],
+                       'time': i[1],
+                       'amount': i[2]
+                       }
+                      for i in res if i[0] is not None]
+        total = sum(i.get('amount', 0) for i in commission)
+        for item in commission:
+            item['amount'] = ' + ¥{}'.format(item['amount'])
+        total = ' ¥{}'.format(total)
+        return commission, total
 
     @phone_required
     def apply_cash(self):
