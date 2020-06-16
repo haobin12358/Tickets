@@ -136,7 +136,7 @@ class CFile(object):
                 if current_app.config.get('IMG_TO_OSS'):
                     try:
                         qiniu_oss.save(data=thumbnail_img, filename=data[1:])
-                        os.remove(str(newFile + '_' + thumbnail_img.split('_')[-1]))
+                        # os.remove(str(newFile + '_' + thumbnail_img.split('_')[-1]))
                     except Exception as e:
                         current_app.logger.error(">>>  图片上传到七牛云出错 : {}  <<<".format(e))
                         raise ParamsError('上传图片失败，请稍后再试')

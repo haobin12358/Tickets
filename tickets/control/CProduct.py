@@ -329,7 +329,7 @@ class CProduct(object):
         prlineprice, prtrueprice = map(lambda x: validate_price(x, can_zero=False),
                                        (data.get('prlineprice'), data.get('prtrueprice')))
         latitude, longitude = self.check_lat_and_long(data.get('latitude'), data.get('longitude'))
-        prnum = data.get('prnum')
+        prnum = data.get('prnum') if prtimelimeted else 99999999
         if not isinstance(prnum, int) or int(prnum) <= 0:
             raise ParamsError('请输入合理的商品数量')
 

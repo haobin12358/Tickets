@@ -283,7 +283,7 @@ class PlayPicture():
         if starttime_grab and endtime_grab:
             dw.text((55, 931), '发放时间: {}-{}'.format(starttime_grab, endtime_grab), font=timefont, fill='#000000')
         else:  # 非限时商品限时现价
-            dw.text((390, 900), '现价: ¥ {}'.format(true_price),
+            dw.text((360, 900), '现价: ¥ {}'.format(true_price),
                     font=imf.truetype(os.path.join(self.res_path, 'pingfangMedium_cu.ttf'), 50), fill='#FF0000')
 
         # ￥
