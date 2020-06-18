@@ -436,7 +436,9 @@ class COrder():
         if not om:
             current_app.logger.error("===订单不存在，分佣失败 OPayno = {}===".format(pp.OPayno))
             return
-        user = self._current_user()
+        # user = self._current_user()
+        user = User.query.filter(User.USid == om.USid, User.isdelete == false()).first()
+
         if not user:
             current_app.logger.error("===用户不存在，分佣失败 omid = {} USid = {}===".format(om.OMid, om.USid))
             return
