@@ -14,7 +14,7 @@ from tickets.config.enums import PayType, ProductStatus, UserCommissionStatus, A
 from tickets.config.http_config import API_HOST
 from tickets.config.timeformat import format_for_web_second, format_forweb_no_HMS
 from tickets.extensions.error_response import ParamsError, StatusError, AuthorityError
-from tickets.extensions.interface.user_interface import is_user, is_admin, token_required, phone_required
+from tickets.extensions.interface.user_interface import is_user, is_admin, token_required, phone_required, is_supplizer
 from tickets.extensions.make_qrcode import qrcodeWithtext
 from tickets.extensions.params_validates import parameter_required
 from tickets.extensions.register_ext import db, mini_wx_pay
@@ -75,7 +75,7 @@ class COrder():
                 om.OMstatus = OrderStatus.pending.value
             elif om.OMpayType == PayType.cash.value:  # 直接买
                 om.OMstatus = OrderStatus.has_won.value
-                om.OMqrcode = self._ticket_order_qrcode(om.PRid, om.USid)
+                om.OMqrcode = self._ticket_order_qrcode(om.OMid, om.USid)
             # todo 管理员确认中奖
         return self.wx_pay.reply("OK", True).decode()
 
@@ -151,13 +151,14 @@ class COrder():
                 # omdict.setdefault('USCommission2', user.USCommission2)
                 # omdict.setdefault('USCommission3', user.USCommission3)
             om = OrderMain.create(omdict)
-            product.PRnum -= 1  # 商品库存修改
+            # product.PRnum -= 1  # 商品库存修改 # 0618 fix 非商品逻辑，不能改库存数
             db.session.add(product)
             db.session.add(om)
         body = product.PRname[:16] + '...'
         openid = user.USopenid1
-        # 30分钟 自动取消
-        add_async_task(auto_cancle_order, now + timedelta(minutes=30), (omid,), conn_id='autocancle{}'.format(omid))
+        # 直购订单 不付款 1分钟 自动取消
+        if not product.PRtimeLimeted:
+            add_async_task(auto_cancle_order, now + timedelta(minutes=1), (omid,), conn_id='autocancle{}'.format(omid))
         pay_args = self._add_pay_detail(opayno=opayno, body=body, mount_price=mount_price, openid=openid,
                                         opayType=ompaytype, redirect=redirect)
         response = {
@@ -187,6 +188,26 @@ class COrder():
         self._cancle(order_main)
         return Success('取消成功')
 
+    def pay_to_user(self, cn):
+        """
+        付款到用户微信零钱
+        :return:
+        """
+        user = User.query.filter_by_(USid=cn.USid).first_("提现用户状态异常，请检查后重试")
+        try:
+            result = self.wx_pay.pay_individual(
+                partner_trade_no=self.wx_pay.nonce_str,
+                openid=user.USopenid2,
+                amount=int(Decimal(cn.CNcashNum).quantize(Decimal('0.00')) * 100),
+                desc="零钱转出",
+                spbill_create_ip=self.wx_pay.remote_addr
+            )
+            current_app.logger.info('微信提现到零钱, response: {}'.format(request))
+        except Exception as e:
+            current_app.logger.error('微信提现返回错误：{}'.format(e))
+            raise StatusError('微信商户平台: {}'.format(e))
+        return result
+
     def list(self):
         data = parameter_required()
         omstatus = data.get('omstatus')
@@ -202,7 +223,7 @@ class COrder():
                 omstatus = OrderStatus.pending.value
             filter_args.append(OrderMain.USid == user.USid)
             filter_args.append(OrderMain.OMstatus == omstatus)
-        elif is_admin():
+        else:
             if omstatus:
                 try:
                     omstatus = OrderStatus(int(str(omstatus))).value
@@ -227,6 +248,8 @@ class COrder():
                 filter_args.append(OrderMain.OMno.ilike('%{}%'.format(omno)))
             if prname:
                 filter_args.append(OrderMain.PRname.ilike('%{}%'.format(prname)))
+            if is_supplizer():
+                filter_args.append(OrderMain.PRcreateId == getattr(request, 'user').id)
         omlist = OrderMain.query.filter(*filter_args).order_by(*order_by_list).all_with_page()
 
         now = datetime.now()
@@ -585,16 +608,16 @@ class COrder():
         c = (c + "0" * n)[:n]
         return Decimal(".".join([a, c]))
 
-    def _ticket_order_qrcode(self, prid, usid):
+    def _ticket_order_qrcode(self, omid, usid):
         """创建票二维码"""
         from .CUser import CUser
         cuser = CUser()
         savepath, savedbpath = cuser._get_path('qrcode')
         secret_usid = cuser._base_encode(usid)
-        filename = os.path.join(savepath, '{}.png'.format(prid))
-        filedbname = os.path.join(savedbpath, '{}.png'.format(prid))
+        filename = os.path.join(savepath, '{}.png'.format(omid))
+        filedbname = os.path.join(savedbpath, '{}.png'.format(omid))
         current_app.logger.info('get basedir {0}'.format(current_app.config['BASEDIR']))
-        text = 'prid={}&secret={}'.format(prid, secret_usid)
+        text = 'omid={}&secret={}'.format(omid, secret_usid)
         current_app.logger.info('get text content {0}'.format(text))
         qrcodeWithtext(text, filename)
 
@@ -605,6 +628,32 @@ class COrder():
             except Exception as e:
                 current_app.logger.error('二维码转存七牛云失败 ： {}'.format(e))
         return filedbname
+
+    def product_score_award(self, product):
+        if not product:
+            return
+        count = 0
+        oms = OrderMain.query.filter(OrderMain.isdelete == false(), OrderMain.PRid == product.PRid,
+                                     OrderMain.OMstatus == OrderStatus.pending.value,
+                                     OrderMain.OMpayType == PayType.scorepay.value,
+                                     ).order_by(OrderMain.OMintegralpayed.desc(),
+                                                OrderMain.createtime.desc()).limit(product.PRnum).all()
+        omids = []
+        for om in oms:
+            omids.append(om.OMid)
+            om.OMstatus = OrderStatus.has_won.value
+            om.OMqrcode = self._ticket_order_qrcode(om.OMid, om.USid)
+        # 未中的
+        not_won_oms = OrderMain.query.filter(OrderMain.isdelete == false(),
+                                             OrderMain.OMid.notin_(omids),
+                                             OrderMain.PRid == product.PRid,
+                                             OrderMain.OMstatus == OrderStatus.pending.value,
+                                             OrderMain.OMpayType == PayType.scorepay.value).all()
+        for nom in not_won_oms:
+            nom.OMstatus = OrderStatus.not_won.value
+            current_app.logger.info('not won order, omid: {}'.format(nom.OMid))
+            count += 1
+        current_app.logger.info('总名额: {}, 中签数: {}, 未中数: {}'.format(product.PRnum, len(oms), count))
 
     @staticmethod
     def _current_user(msg=None):
@@ -622,3 +671,67 @@ class COrder():
             if product:
                 product.PRnum += 1
                 db.session.add(product)
+
+    @token_required
+    def history_detail(self):
+        if not is_supplizer() and not is_admin():
+            raise AuthorityError()
+        days = request.args.to_dict().get('days')
+        if days:
+            days = days.replace(' ', '').split(',')
+            days = list(map(lambda x: datetime.strptime(x, '%Y-%m-%d').date(), days))
+        else:
+            days = []
+        suid = request.user.id if is_supplizer() else None
+        datas = []
+        for day in days:
+            data = {
+                'day_total': self._history_order('total', day=day,
+                                                 status=(OrderMain.OMstatus > OrderStatus.pending.value,
+                                                         OrderMain.OMpayType == PayType.cash.value),
+                                                 suid=suid),
+                'day_count': self._history_order('count', day=day, suid=suid),
+                'wai_pay_count': self._history_order('count', day=day,
+                                                     status=(OrderMain.OMstatus == OrderStatus.wait_pay.value,),
+                                                     suid=suid),
+                # 'in_refund': self._inrefund(day=day, suid=suid),
+                'in_refund': 0,
+                'day': day
+            }
+            datas.append(data)
+        if not days:
+            # 获取系统全部
+            data = {
+                'day_total': self._history_order('total',
+                                                 status=(OrderMain.OMstatus > OrderStatus.pending.value,
+                                                         OrderMain.OMpayType == PayType.cash.value),
+                                                 suid=suid),
+                'day_count': self._history_order('count', suid=suid),
+                'wai_pay_count': 0,
+                'in_refund': 0,
+                'day': None
+            }
+            datas.append(data)
+        return Success(data=datas)
+
+    def _history_order(self, *args, **kwargs):
+        with db.auto_commit() as session:
+            status = kwargs.get('status', None)
+            day = kwargs.get('day', None)
+            suid = kwargs.get('suid', None)
+            if 'total' in args:
+                query = session.query(func.sum(OrderMain.OMtrueMount))
+            elif 'count' in args:
+                query = session.query(func.count(OrderMain.OMid))
+            # elif 'refund' in args:
+            #     return self._inrefund(*args, **kwargs)
+            query = query.filter(OrderMain.isdelete == False)
+            if status is not None:
+                query = query.filter(*status)
+            if day is not None:
+                query = query.filter(
+                    cast(OrderMain.createtime, Date) == day,
+                )
+            if suid is not None:
+                query = query.filter(OrderMain.PRcreateId == suid)
+            return query.first()[0] or 0

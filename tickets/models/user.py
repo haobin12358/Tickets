@@ -291,3 +291,4 @@ class Supplizer(Base):
     SUemail = Column(String(256), comment='供应商邮箱')
     SUlegalPersonIDcardFront = Column(Text, url=True, comment='法人身份证正面')
     SUlegalPersonIDcardBack = Column(Text, url=True, comment='法人身份证正面')
+    SUgrade = Column(Integer, default=1, comment='供应商类型 0：普通货物， 1：虚拟商品供应商')

@@ -80,6 +80,16 @@ class ProductVerifier(Base):
     PVphone = Column(String(13), nullable=False)
 
 
+class ProductVerifiedRecord(Base):
+    """核销记录"""
+    __tablename__ = 'ProductVerifiedRecord'
+    PVRid = Column(String(64), primary_key=True)
+    ownerId = Column(String(64), comment='门票持有者id')
+    VerifierId = Column(String(64), comment='验证人员id')
+    OMid = Column(String(64), comment='订单id')
+    param = Column(Text, comment='扫描到的原参数')
+
+
 class Agreement(Base):
     """规则/协议"""
     __tablename__ = 'Agreement'

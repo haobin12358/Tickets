@@ -1,24 +1,25 @@
 import os
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import re
 import uuid
 from decimal import Decimal
 
 import requests
 from flask import current_app, request
-from sqlalchemy import false, cast, Date, and_, or_
+from sqlalchemy import false, cast, Date, and_, or_, func, extract
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from tickets.common.default_head import GithubAvatarGenerator
 from tickets.common.id_check import DOIDCheck
 from tickets.config.enums import MiniUserGrade, ApplyFrom, ActivationTypeEnum, UserLoginTimetype, \
-    AdminLevel, AdminStatus, AdminAction
+    AdminLevel, AdminStatus, AdminAction, AdminActionS, UserStatus, ApprovalAction, OrderStatus, PayType, \
+    UserCommissionStatus, WXLoginFrom
 from tickets.config.secret import MiniProgramAppId, MiniProgramAppSecret
-from tickets.control.BaseControl import BaseController
+from tickets.control.BaseControl import BaseController, BaseAdmin, BaseApproval
 from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError, NotFound, \
-    InsufficientConditionsError, AuthorityError
+    InsufficientConditionsError, AuthorityError, StatusError
 from tickets.extensions.interface.user_interface import token_required, phone_required, is_admin, is_supplizer, is_user, \
-    get_current_admin
+    get_current_admin, admin_required
 from tickets.extensions.params_validates import parameter_required, validate_arg
 from tickets.extensions.register_ext import db, mp_miniprogram, qiniu_oss
 from tickets.extensions.request_handler import _get_user_agent
@@ -27,10 +28,14 @@ from tickets.extensions.token_handler import usid_to_token
 from tickets.extensions.weixin import WeixinLogin
 from tickets.extensions.weixin.mp import WeixinMPError
 from tickets.models import User, SharingParameters, UserLoginTime, UserWallet, ProductVerifier, AddressProvince, \
-    AddressArea, AddressCity, IDCheck, UserMedia, UserInvitation, Admin, AdminNotes
+    AddressArea, AddressCity, IDCheck, UserMedia, UserInvitation, Admin, AdminNotes, UserAccessApi, UserCommission, \
+    Supplizer, CashNotes, OrderMain
 
 
 class CUser(object):
+    base_admin = BaseAdmin()
+    base_approval = BaseApproval()
+
     @staticmethod
     def _decrypt_encrypted_user_data(encrypteddata, session_key, iv):
         """小程序信息解密"""
@@ -133,6 +138,7 @@ class CUser(object):
                     user_dict.setdefault('USsupper3', upperd.USsupper2)
                 user = User.create(user_dict)
             db.session.add(user)
+            db.session.flush()
             if upperd:
                 today = datetime.now().date()
                 uin_exist = UserInvitation.query.filter(
@@ -426,30 +432,12 @@ class CUser(object):
         uw = UserWallet.query.filter(UserWallet.USid == user.USid).first()
         if not uw:
             user.fill('usbalance', 0)
-            # user.fill('ustotal', 0)
-            # user.fill('uscash', 0)
+            user.fill('ustotal', 0)
+            user.fill('uscash', 0)
         else:
             user.fill('usbalance', uw.UWbalance or 0)
-            # user.fill('ustotal', uw.UWtotal or 0)
-            # user.fill('uscash', uw.UWcash or 0)
-        # todo 佣金部分
-        # ucs = UserCommission.query.filter(
-        #     UserCommission.USid == user.USid,
-        #     UserCommission.UCstatus == UserCommissionStatus.preview.value,
-        #     UserCommission.isdelete == False).all()
-        # uc_total = sum([Decimal(str(uc.UCcommission)) for uc in ucs])
-        #
-        # uswithdrawal = db.session.query(func.sum(CashNotes.CNcashNum)
-        #                                 ).filter(CashNotes.USid == user.USid,
-        #                                          CashNotes.isdelete == False,
-        #                                          CashNotes.CNstatus == ApprovalAction.submit.value
-        #                                          # CashNotes.CNstatus.in_([CashStatus.submit.value,
-        #                                          #                        CashStatus.agree.value])
-        #                                          ).scalar()
-        #
-        # user.fill('uswithdrawal', uswithdrawal or 0)
-        #
-        # user.fill('usexpect', float('%.2f' % uc_total))
+            user.fill('ustotal', uw.UWtotal or 0)
+            user.fill('uscash', uw.UWcash or 0)
 
     @phone_required
     def my_wallet(self):
@@ -461,49 +449,95 @@ class CUser(object):
             raise ParamsError('date 格式错误')
         year, month = str(date).split('-') if date else (datetime.now().year, datetime.now().month)
 
-        # todo mock data
-        # transactions = [{
-        #     "amount": "-¥3.05",
-        #     "time": "2019-07-01 16:38:29",
-        #     "title": "西安-宝鸡-咸阳·二日"
-        # }]
-        # total = '-3.05'
-        # uwcash = 11
-        transactions = [
-        ]
-        total = '0'
-        uwcash = 0
         if option == 'expense':  # 消费记录
-            # transactions, total = self._get_transactions(user, year, month, args)
+            transactions, total = self._get_transactions(user, year, month)
             pass
         elif option == 'withdraw':  # 提现记录
-            # transactions, total = self._get_withdraw(user, year, month)
-            pass
+            transactions, total = self._get_withdraw(user, year, month)
         elif option == 'commission':  # 佣金收入
-            pass
+            transactions, total = self._get_commission(user, year, month)
         else:
             raise ParamsError('type 参数错误')
-        # user_wallet = UserWallet.query.filter(UserWallet.isdelete == false(), UserWallet.USid == user.USid).first()
-        # if user_wallet:
-        #     uwcash = user_wallet.UWcash
-        # else:
-        #     with db.auto_commit():
-        #         user_wallet_instance = UserWallet.create({
-        #             'UWid': str(uuid.uuid1()),
-        #             'USid': user.USid,
-        #             'CommisionFor': ApplyFrom.user.value,
-        #             'UWbalance': Decimal('0.00'),
-        #             'UWtotal': Decimal('0.00'),
-        #             'UWcash': Decimal('0.00'),
-        #             'UWexpect': Decimal('0.00')
-        #         })
-        #         db.session.add(user_wallet_instance)
-        #         uwcash = 0
+        user_wallet = UserWallet.query.filter(UserWallet.isdelete == false(), UserWallet.USid == user.USid).first()
+        if user_wallet:
+            uwcash = user_wallet.UWcash
+        else:
+            with db.auto_commit():
+                user_wallet_instance = UserWallet.create({
+                    'UWid': str(uuid.uuid1()),
+                    'USid': user.USid,
+                    'CommisionFor': ApplyFrom.user.value,
+                    'UWbalance': Decimal('0.00'),
+                    'UWtotal': Decimal('0.00'),
+                    'UWcash': Decimal('0.00'),
+                    'UWexpect': Decimal('0.00')
+                })
+                db.session.add(user_wallet_instance)
+            uwcash = 0
         response = {'uwcash': uwcash,
                     'transactions': transactions,
                     'total': total
                     }
-        return Success(data=response).get_body(total_count=1, total_page=1)
+        return Success(data=response)
+
+    @staticmethod
+    def _get_transactions(user, year, month):
+        order_mains = db.session.query(OrderMain.PRname, OrderMain.createtime,
+                                       OrderMain.OMtrueMount, OrderMain.OMpayType
+                                       ).filter(OrderMain.isdelete == false(),
+                                                OrderMain.USid == user.USid,
+                                                OrderMain.OMstatus > OrderStatus.wait_pay.value,
+                                                extract('month', OrderMain.createtime) == month,
+                                                extract('year', OrderMain.createtime) == year
+                                                ).order_by(OrderMain.createtime.desc(), origin=True
+                                                           ).all_with_page()
+        transactions = [{'title': f'{"[活跃分申请] " if i[3] == PayType.scorepay.value else "[购买] "}' + i[0],
+                         'time': i[1],
+                         'amount': i[2],
+                         } for i in order_mains if i[0] is not None]
+        total = sum(i.get('amount', 0) for i in transactions)
+
+        for item in transactions:
+            item['amount'] = '- ¥{}'.format(item['amount']) if item['amount'] != 0 else '  ¥{}'.format(item['amount'])
+        total = ' ¥{}'.format(total) if total == 0 else ' - ¥{}'.format(-total)
+        return transactions, total
+
+    @staticmethod
+    def _get_withdraw(user, year, month):
+        res = db.session.query(CashNotes.CNstatus, CashNotes.createtime, CashNotes.CNcashNum
+                               ).filter(CashNotes.isdelete == false(), CashNotes.USid == user.USid,
+                                        extract('month', CashNotes.createtime) == month,
+                                        extract('year', CashNotes.createtime) == year
+                                        ).order_by(CashNotes.createtime.desc(), origin=True).all_with_page()
+        withdraw = [{'title': ApprovalAction(i[0]).zh_value, 'time': i[1], 'amount': i[2]}
+                    for i in res if i[0] is not None]
+        total = sum(i.get('amount', 0) for i in withdraw)
+        for item in withdraw:
+            item['amount'] = '¥{}'.format(item['amount'])
+        total = ' ¥{}'.format(total)
+        return withdraw, total
+
+    @staticmethod
+    def _get_commission(user, year, month):
+        res = db.session.query(UserCommission.PRname, UserCommission.createtime,
+                               UserCommission.UCcommission, UserCommission.UCstatus
+                               ).filter(UserCommission.isdelete == false(),
+                                        UserCommission.USid == user.USid,
+                                        UserCommission.UCstatus > UserCommissionStatus.preview.value,
+                                        extract('month', UserCommission.createtime) == month,
+                                        extract('year', UserCommission.createtime) == year
+                                        ).order_by(UserCommission.createtime.desc(),
+                                                   origin=True).all_with_page()
+        commission = [{'title': UserCommissionStatus(i[3]).zh_value + i[0],
+                       'time': i[1],
+                       'amount': i[2]
+                       }
+                      for i in res if i[0] is not None]
+        total = sum(i.get('amount', 0) for i in commission)
+        for item in commission:
+            item['amount'] = ' + ¥{}'.format(item['amount'])
+        total = ' ¥{}'.format(total)
+        return commission, total
 
     @phone_required
     def apply_cash(self):
@@ -535,7 +569,7 @@ class CUser(object):
             current_app.logger.info('提现金额为 {0}  实际余额为 {1}'.format(cncashnum, balance))
             raise ParamsError('提现金额超出余额')
         elif not (0.30 <= cncashnum <= 5000):
-            raise ParamsError('当前测试版本单次可提现范围(0.30 ~ 5000元)')
+            raise ParamsError('单次可提现范围(0.30 ~ 5000元)')
 
         uw.UWcash = Decimal(str(uw.UWcash)) - Decimal(cncashnum)
         kw = {}
@@ -561,21 +595,19 @@ class CUser(object):
         else:
             user = User.query.filter(User.USid == request.user.id, User.isdelete == False).first()
 
-        #     cn = CashNotes.create({
-        #         'CNid': str(uuid.uuid1()),
-        #         'USid': user.USid,
-        #         'CNcashNum': Decimal(cncashnum).quantize(Decimal('0.00')),
-        #         'CommisionFor': commision_for
-        #     })
-        #     if str(applyplatform) == str(WXLoginFrom.miniprogram.value):
-        #         setattr(cn, 'ApplyPlatform', WXLoginFrom.miniprogram.value)
-        # db.session.add(cn)
-        # if is_admin():
-        #     BASEADMIN().create_action(AdminActionS.insert.value, 'CashNotes', str(uuid.uuid1()))
-        # db.session.flush()
-        # # 创建审批流
-        #
-        # self.create_approval('tocash', request.user.id, cn.CNid, commision_for, **kw)
+            cn = CashNotes.create({
+                'CNid': str(uuid.uuid1()),
+                'USid': user.USid,
+                'CNcashNum': Decimal(cncashnum).quantize(Decimal('0.00')),
+                'CommisionFor': commision_for,
+                'ApplyPlatform': WXLoginFrom.miniprogram.value
+            })
+
+        db.session.add(cn)
+        db.session.flush()
+        # 创建审批流
+
+        self.base_approval.create_approval('tocash', request.user.id, cn.CNid, commision_for, **kw)
         return Success('已成功提交提现申请， 我们将在3个工作日内完成审核，请及时关注您的账户余额')
 
     def __check_apply_cash(self, commision_for):
@@ -759,10 +791,11 @@ class CUser(object):
                 Admin.isdelete == False, Admin.ADlevel == AdminLevel.common_admin.value).order_by(
                 Admin.createtime.desc()).all()
         for admin in admins:
-            admin.fields = ['ADid', 'ADname', 'ADheader', 'createtime', 'ADtelephone', 'ADnum']
+            admin.fields = ['ADid', 'ADname', 'ADheader', 'createtime', 'ADnum']
             admin.fill('adlevel', AdminLevel(admin.ADlevel).zh_value)
             admin.fill('adstatus', AdminStatus(admin.ADstatus).zh_value)
             admin.fill('adpassword', '*' * 6)
+            admin.fill('adtelphone', admin.ADtelephone)
             admin_login = UserLoginTime.query.filter_by_(
                 USid=admin.ADid, ULtype=UserLoginTimetype.admin.value).order_by(UserLoginTime.createtime.desc()).first()
             logintime = None
@@ -771,6 +804,81 @@ class CUser(object):
             admin.fill('logintime', logintime)
 
         return Success('获取管理员列表成功', data=admins)
+
+    @token_required
+    def list_user_commison(self):
+        """查看代理商获取的佣金列表"""
+        args = request.args.to_dict()
+        mobile = args.get('mobile')
+        name = args.get('name')
+        user_query = User.query.filter(User.isdelete == false())
+        if mobile:
+            user_query = user_query.filter(User.UStelephone.contains(mobile.strip()))
+        if name:
+            user_query = user_query.filter(User.USname.contains(name.strip()))
+
+        users = user_query.order_by(User.createtime.desc()).all_with_page()
+        for user in users:
+            # 佣金
+            user.fields = ['USid', 'USname', 'USheader', 'USCommission1',
+                           'USCommission2', 'USCommission3', 'USlevel']
+            usid = user.USid
+            user.fill('ustelphone', user.UStelephone)
+            wallet = UserWallet.query.filter(
+                UserWallet.isdelete == False,
+                UserWallet.USid == usid,
+            ).first()
+            remain = getattr(wallet, 'UWbalance', 0)
+            total = getattr(wallet, 'UWtotal', 0)
+            cash = getattr(wallet, 'UWcash', 0)
+            user.fill('remain', remain)
+            user.fill('total', total)
+            user.fill('cash', cash)
+            # 粉丝数
+            fans_num = User.query.filter(
+                User.isdelete == False,
+                User.USsupper1 == usid,
+            ).count()
+            user.fill('fans_num', fans_num)
+
+            userlogintime = UserAccessApi.query.filter(
+                UserAccessApi.isdelete == False,
+                UserAccessApi.USid == usid
+            ).order_by(
+                UserAccessApi.createtime.desc()
+            ).first() or UserLoginTime.query.filter(
+                UserLoginTime.isdelete == False,
+                UserLoginTime.USid == usid
+            ).order_by(
+                UserLoginTime.createtime.desc()
+            ).first()
+            user.fill('userlogintime',
+                      getattr(userlogintime, 'createtime', user.updatetime) or user.updatetime)
+            user.fill('usquery', 0)
+        return Success(data=users)
+
+    @admin_required
+    def list_fans(self):
+        data = parameter_required(('usid',))
+        usid = data.get('usid')
+        users = User.query.filter(
+            User.isdelete == False,
+            User.USsupper1 == usid
+        ).all_with_page()
+        for user in users:
+            user.fields = ['USlevel', 'USname']
+            user.fill('ustelphone', user.UStelephone)
+            # 从该下级获得的佣金
+            total = UserCommission.query.with_entities(func.sum(UserCommission.UCcommission)). \
+                filter(
+                UserCommission.isdelete == False,
+                UserCommission.USid == usid,
+                UserCommission.FromUsid == user.USid,
+                UserCommission.UCstatus >= 0
+            ).all()
+            total = total[0][0] or 0
+            user.fill('commision_from', total)
+        return Success(data=users)
 
     @token_required
     def update_admin_password(self):
@@ -845,7 +953,9 @@ class CUser(object):
         # 等级校验
         if adlevel not in [1, 2, 3]:
             raise ParamsError('adlevel参数错误')
-
+        telephone = data.get('adtelphone')
+        if not re.match(r'^1[0-9]{10}$', str(telephone)):
+            raise ParamsError('手机号格式错误')
         # 账户名校验
         self.__check_adname(adname, adid)
         adnum = self.__get_adnum()
@@ -855,7 +965,7 @@ class CUser(object):
                 'ADid': adid,
                 'ADnum': adnum,
                 'ADname': adname,
-                'ADtelephone': data.get('adtelphone'),
+                'ADtelephone': telephone,
                 'ADfirstpwd': password,
                 'ADfirstname': adname,
                 'ADpassword': generate_password_hash(password),
@@ -887,61 +997,87 @@ class CUser(object):
             raise AuthorityError('权限不足')
         update_admin = {}
         action_list = []
-        if data.get("adname"):
-            update_admin['ADname'] = data.get("adname")
-            action_list.append(str(AdminAction.ADname.value) + '为' + str(data.get("adname")) + '\n')
+        with db.auto_commit():
+            if data.get("adname"):
+                update_admin['ADname'] = data.get("adname")
+                action_list.append(str(AdminAction.ADname.value) + '为' + str(data.get("adname")) + '\n')
 
-        if data.get('adheader'):
-            update_admin['ADheader'] = data.get("adheader")
-            action_list.append(str(AdminAction.ADheader.value) + '\n')
-        if data.get('adtelphone'):
-            # self.__check_identifyingcode(data.get('adtelphone'), data.get('identifyingcode'))
-            update_admin['ADtelphone'] = data.get('adtelphone')
-            action_list.append(str(AdminAction.ADtelphone.value) + '为' + str(data.get("adtelphone")) + '\n')
-        password = data.get('adpassword')
-        if password and password != '*' * 6:
-            self.__check_password(password)
-            password = generate_password_hash(password)
-            update_admin['ADpassword'] = password
-            action_list.append(str(AdminAction.ADpassword.value) + '为' + str(password) + '\n')
+            if data.get('adheader'):
+                update_admin['ADheader'] = data.get("adheader")
+                action_list.append(str(AdminAction.ADheader.value) + '\n')
+            if data.get('adtelphone'):
+                # self.__check_identifyingcode(data.get('adtelphone'), data.get('identifyingcode'))
+                update_admin['ADtelephone'] = data.get('adtelphone')
+                action_list.append(str(AdminAction.ADtelphone.value) + '为' + str(data.get("adtelphone")) + '\n')
+            password = data.get('adpassword')
+            if password and password != '*' * 6:
+                self.__check_password(password)
+                password = generate_password_hash(password)
+                update_admin['ADpassword'] = password
+                action_list.append(str(AdminAction.ADpassword.value) + '为' + str(password) + '\n')
 
-        if admin.ADlevel == AdminLevel.super_admin.value:
-            filter_adid = data.get('adid') or admin.ADid
-            if getattr(AdminLevel, data.get('adlevel', ""), ""):
-                update_admin['ADlevel'] = getattr(AdminLevel, data.get('adlevel')).value
-                action_list.append(
-                    str(AdminAction.ADlevel.value) + '为' + getattr(AdminLevel, data.get('adlevel')).zh_value + '\n')
-            if getattr(AdminStatus, data.get('adstatus', ""), ""):
-                update_admin['ADstatus'] = getattr(AdminStatus, data.get('adstatus')).value
-                action_list.append(
-                    str(AdminAction.ADstatus.value) + '为' + getattr(AdminStatus, data.get('adstatus')).zh_value + '\n')
-        else:
-            filter_adid = admin.ADid
-        self.__check_adname(data.get("adname"), filter_adid)
+            if admin.ADlevel == AdminLevel.super_admin.value:
+                filter_adid = data.get('adid') or admin.ADid
+                if getattr(AdminLevel, data.get('adlevel', ""), ""):
+                    update_admin['ADlevel'] = getattr(AdminLevel, data.get('adlevel')).value
+                    action_list.append(
+                        str(AdminAction.ADlevel.value) + '为' + getattr(AdminLevel, data.get('adlevel')).zh_value + '\n')
+                if getattr(AdminStatus, data.get('adstatus', ""), ""):
+                    update_admin['ADstatus'] = getattr(AdminStatus, data.get('adstatus')).value
+                    action_list.append(
+                        str(AdminAction.ADstatus.value) + '为' + getattr(AdminStatus,
+                                                                        data.get('adstatus')).zh_value + '\n')
+            else:
+                filter_adid = admin.ADid
+            self.__check_adname(data.get("adname"), filter_adid)
 
-        update_admin = {k: v for k, v in update_admin.items() if v or v == 0}
-        update_result = self.update_admin_by_filter(ad_and_filter=[Admin.ADid == filter_adid, Admin.isdelete == False],
-                                                    ad_or_filter=[], adinfo=update_admin)
-        if not update_result:
-            raise ParamsError('管理员不存在')
-        filter_admin = Admin.query.filter(Admin.isdelete == false(), Admin.ADid == filter_adid).first_('管理员不存在')
+            update_admin = {k: v for k, v in update_admin.items() if v or v == 0}
+            update_result = self.update_admin_by_filter(
+                ad_and_filter=[Admin.ADid == filter_adid, Admin.isdelete == False],
+                ad_or_filter=[], adinfo=update_admin)
+            if not update_result:
+                raise ParamsError('管理员不存在')
+            filter_admin = Admin.query.filter(Admin.isdelete == false(), Admin.ADid == filter_adid).first_('管理员不存在')
 
-        action_str = admin.ADname + '修改' + filter_admin.ADname + ','.join(action_list)
+            action_str = admin.ADname + '修改' + filter_admin.ADname + ','.join(action_list)
 
-        an_instance = AdminNotes.create({
-            'ANid': str(uuid.uuid1()),
-            'ADid': filter_adid,
-            'ANaction': action_str,
-            "ANdoneid": request.user.id
-        })
-        db.session.add(an_instance)
-        # if is_admin(): todo
-        #     BASEADMIN().create_action(AdminActionS.insert.value, 'AdminNotes', str(uuid.uuid1()))
+            an_instance = AdminNotes.create({
+                'ANid': str(uuid.uuid1()),
+                'ADid': filter_adid,
+                'ANaction': action_str,
+                "ANdoneid": request.user.id
+            })
+            db.session.add(an_instance)
+        if is_admin():
+            self.base_admin.create_action(AdminActionS.insert.value, 'AdminNotes', str(uuid.uuid1()))
         return Success("操作成功")
 
     def update_admin_by_filter(self, ad_and_filter, ad_or_filter, adinfo):
         return Admin.query.filter_(
             and_(*ad_and_filter), or_(*ad_or_filter), Admin.isdelete == False).update(adinfo)
+
+    def supplizer_login(self):
+        """供应商登录"""
+        # 手机号登录
+        data = parameter_required({'mobile': '账号', 'password': '密码'})
+        mobile = data.get('mobile')
+        password = data.get('password')
+        supplizer = Supplizer.query.filter_by_({'SUloginPhone': mobile}).first_()
+
+        if not supplizer:
+            raise NotFound('登录账号错误')
+        elif not supplizer.SUpassword:
+            raise StatusError('账号正在审核中，请耐心等待')
+        elif not check_password_hash(supplizer.SUpassword, password):
+            raise StatusError('密码错误')
+        elif supplizer.SUstatus == UserStatus.forbidden.value:
+            raise StatusError('该账号已被冻结, 详情请联系管理员')
+        jwt = usid_to_token(supplizer.SUid, 'Supplizer', username=supplizer.SUname)  # 供应商jwt
+        supplizer.fields = ['SUlinkPhone', 'SUheader', 'SUname', 'SUgrade']
+        return Success('登录成功', data={
+            'token': jwt,
+            'supplizer': supplizer
+        })
 
     def __check_password(self, password):
         if not password or len(password) < 4:
@@ -956,7 +1092,7 @@ class CUser(object):
         """账户名校验"""
         if not adname or adid:
             return True
-        suexist = self.get_admin_by_name(adname)
+        suexist = Admin.query.filter_by(ADname=adname, isdelete=False).first()
         if suexist and suexist.ADid != adid:
             raise ParamsError('用户名已存在')
         return True
@@ -966,3 +1102,35 @@ class CUser(object):
         if not admin:
             return 100000
         return admin.ADnum + 1
+
+    @admin_required
+    def user_data_overview(self):
+        """用户数概览"""
+        days = self._get_nday_list(7)
+        user_count, ip_count, uv_count = [], [], []
+        # user_count = db.session.query(*[func.count(cast(User.createtime, Date) <= day) for day in days]
+        #                               ).filter(User.isdelete == False).all()
+        for day in days:
+            ucount = User.query.filter(User.isdelete == false(),
+                                       cast(User.createtime, Date) <= day).count()
+            user_count.append(ucount)
+            ipcount = db.session.query(UserAccessApi.USTip).filter(UserAccessApi.isdelete == false(),
+                                                                   cast(UserAccessApi.createtime, Date) == day
+                                                                   ).group_by(UserAccessApi.USTip).count()
+            ip_count.append(ipcount)
+            uvcount = db.session.query(UserAccessApi.USid).filter(UserAccessApi.isdelete == false(),
+                                                                  cast(UserAccessApi.createtime, Date) == day
+                                                                  ).group_by(UserAccessApi.USid).count()
+            uv_count.append(uvcount)
+
+        series = [{'name': '用户数量', 'data': user_count},
+                  {'name': '独立ip', 'data': ip_count},
+                  {'name': 'uv', 'data': uv_count}]
+        return Success(data={'days': days, 'series': series})
+
+    @staticmethod
+    def _get_nday_list(n):
+        before_n_days = []
+        for i in range(n)[::-1]:
+            before_n_days.append(str(date.today() - timedelta(days=i)))
+        return before_n_days

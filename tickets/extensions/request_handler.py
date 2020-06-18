@@ -2,11 +2,14 @@
 import re
 import traceback
 import base64
+import uuid
 from collections import namedtuple
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer, BadSignature, SignatureExpired
 from flask import current_app, request
 from .error_response import BaseError, SystemError
+from .register_ext import db
 from .success_response import Success
+from ..models import UserAccessApi
 
 
 def token_to_user_(token):
@@ -62,6 +65,24 @@ def _get_user_agent():
         if 'NetType' in item:
             nettype = re.match(r'^(.*)\/(.*)$', item).group(2)
     return osversion, phonemodel, wechatversion, nettype, user_agent.string
+
+
+def user_access_api_records(user):
+    useragent = _get_user_agent()
+    if useragent and user.model == 'User':
+        with db.auto_commit():
+            ula_dict1 = {
+                'UAAid': str(uuid.uuid1()),
+                'USid': request.user.id,
+                'ULA': request.detail['path'],
+                'USTip': request.remote_addr,
+                'OSVersion': useragent[0],
+                'PhoneModel': useragent[1],
+                'WechatVersion': useragent[2],
+                'NetType': useragent[3]
+            }
+            ula_instance = UserAccessApi.create(ula_dict1)
+            db.session.add(ula_instance)
 
 
 def _invitation_records():
@@ -120,6 +141,8 @@ def request_first_handler(app):
         if token and not user:
             from tickets.extensions.error_response import TokenError
             raise TokenError('登录超时，请重新登录')
+        if user:  # 访问记录
+            user_access_api_records(user)
 
 
 def error_handler(app):

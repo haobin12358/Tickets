@@ -658,8 +658,8 @@ class OrderStatus(Enum):
     wait_pay = 1, '待支付'
     pending = 2, '已申请'
     has_won = 10, '可使用'
-    completed = 20, '已使用'  # 2.0 修改取消二次押金
-    accomplish = 30, '已完成'
+    completed = 20, '已使用'
+    accomplish = 30, '已完成'  # 暂时无用
 
 
 class RoleType(Enum):
@@ -690,7 +690,7 @@ class PayType(Enum):
     """购票支付类型"""
     deposit = 1, '押金购'
     cash = 2, '直购'
-    scorepay = 3, '支付分'
+    scorepay = 3, '活跃分'
 
 
 class ShareType(Enum):
@@ -710,6 +710,11 @@ class ActivationTypeEnum(Enum):
     qq = '800', 'QQ号信息绑定'
     wechat = '900', '微信号信息绑定'
     sina = '910', 'sina微博信息绑定'
+
+
+class SupplizerGrade(Enum):
+    product = 0, '普通商品供应商'
+    ticket = 1, '门票供应商'
 
 
 if __name__ == '__main__':

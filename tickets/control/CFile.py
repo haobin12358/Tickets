@@ -33,8 +33,11 @@ class CFile(object):
         if not file:
             raise ParamsError(u'上传有误')
         file_data, video_thum, video_dur, upload_type = self._upload_file(file, folder)
-        return Success('上传成功', data={'url': file_data, 'video_thum': video_thum, 'video_dur': video_dur,
-                                     'upload_type': upload_type})
+        # return Success('上传成功', data={'url': file_data, 'video_thum': video_thum, 'video_dur': video_dur,
+        #                              'upload_type': upload_type})
+
+        return Success('上传成功', data=file_data).get_body(video_thum=video_thum, video_dur=video_dur,
+                                                        upload_type=upload_type)
 
     # @token_required
     def batch_upload(self):
@@ -133,7 +136,7 @@ class CFile(object):
                 if current_app.config.get('IMG_TO_OSS'):
                     try:
                         qiniu_oss.save(data=thumbnail_img, filename=data[1:])
-                        os.remove(str(newFile + '_' + thumbnail_img.split('_')[-1]))
+                        # os.remove(str(newFile + '_' + thumbnail_img.split('_')[-1]))
                     except Exception as e:
                         current_app.logger.error(">>>  图片上传到七牛云出错 : {}  <<<".format(e))
                         raise ParamsError('上传图片失败，请稍后再试')

@@ -213,8 +213,8 @@ class PlayPicture():
         # dw = imd.Draw(im)
         dw.rectangle((x, y, x + w, y + h), fill=color)
 
-    def create_ticket(self, path, tiname, playprice, usid, tiid, wxacode, starttime=None, endtime=None,
-                      starttime_grab=None, endtime_grab=None):
+    def create_ticket(self, path, tiname, playprice, usid, tiid, wxacode, line_price, true_price, starttime=None,
+                      endtime=None, starttime_grab=None, endtime_grab=None):
         if not str(path).startswith('/img'):
             if not (str(path).startswith('http') or str(path).startswith('https')):
                 return
@@ -271,14 +271,21 @@ class PlayPicture():
 
         dw.text((55, 760), '\n'.join(tinamelist), font=tinamefont, fill='#000000')
 
+        timefont = imf.truetype(os.path.join(self.res_path, 'PingFang Regular.otf'), 24)
         # 出发时间
         if starttime and endtime:
-            timefont = imf.truetype(os.path.join(self.res_path, 'PingFang Regular.otf'), 24)
             dw.text((55, 898), '使用时间: {}-{}'.format(starttime, endtime), font=timefont, fill='#000000')
+        else:  # 非限时商品限时原价
+            dw.text((55, 921), '原价：¥ {}'.format(line_price),
+                    font=imf.truetype(os.path.join(self.res_path, 'PingFang Regular.otf'), 34), fill='#000000')
 
         # 抢票时间
         if starttime_grab and endtime_grab:
             dw.text((55, 931), '发放时间: {}-{}'.format(starttime_grab, endtime_grab), font=timefont, fill='#000000')
+        else:  # 非限时商品限时现价
+            dw.text((360, 900), '现价: ¥ {}'.format(true_price),
+                    font=imf.truetype(os.path.join(self.res_path, 'pingfangMedium_cu.ttf'), 50), fill='#FF0000')
+
         # ￥
         # icon_font = imf.truetype(os.path.join(self.res_path, 'PingFang Regular.otf'), 48)
 

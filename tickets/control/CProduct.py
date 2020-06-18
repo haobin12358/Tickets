@@ -6,8 +6,9 @@ from sqlalchemy import false, func, cast, Date
 
 from tickets.common.playpicture import PlayPicture
 from tickets.config.enums import UserStatus, ProductStatus, ShareType, RoleType, OrderStatus, PayType, \
-    ActivationTypeEnum
+    ActivationTypeEnum, AdminActionS
 from tickets.config.http_config import API_HOST
+from tickets.control.BaseControl import BaseAdmin
 from tickets.control.CActivation import CActivation
 from tickets.control.CUser import CUser
 from tickets.extensions.error_response import ParamsError, AuthorityError, StatusError
@@ -16,18 +17,21 @@ from tickets.extensions.interface.user_interface import admin_required, is_admin
 from tickets.extensions.params_validates import parameter_required, validate_arg, validate_price
 from tickets.extensions.register_ext import db, qiniu_oss
 from tickets.extensions.success_response import Success
-from tickets.models import Supplizer, Product, User, Agreement, OrderMain, UserInvitation, SharingType
+from tickets.extensions.tasks import add_async_task, start_product, end_product, cancel_async_task
+from tickets.models import Supplizer, Product, User, Agreement, OrderMain, UserInvitation, SharingType, ProductVerifier, \
+    ProductVerifiedRecord
 
 
 class CProduct(object):
     cuser = CUser()
     cactivation = CActivation()
+    base_admin = BaseAdmin()
 
     def list_product(self):
         """商品列表"""
-        args = request.args.to_dict()
+        # args = request.args.to_dict()
         filter_args = []
-        if not is_admin():
+        if not (is_admin() or is_supplizer()):
             filter_args.append(Product.PRstatus != ProductStatus.interrupt.value)
         if is_supplizer():
             filter_args.append(Product.SUid == getattr(request, 'user').id)
@@ -38,7 +42,7 @@ class CProduct(object):
                                                    Product.createtime.desc()).all_with_page()
         products_fields = ['PRid', 'PRname', 'PRimg', 'PRlinePrice', 'PRtruePrice', 'PRnum', 'PRtimeLimeted',
                            'PRstatus', 'prstatus_zh', 'apply_num', 'PRissueStartTime', 'PRissueEndTime',
-                           'PRuseStartTime', 'PRuseEndTime']
+                           'PRuseStartTime', 'PRuseEndTime', 'interrupt']
         for product in products:
             self._fill_product(product)
             product.fields = products_fields
@@ -58,8 +62,9 @@ class CProduct(object):
         return Success(data=product)
 
     def _fill_product(self, product):
-        product.hide('CreatorId', 'CreatorType', 'SUid')
+        product.hide('CreatorId', 'CreatorType')
         product.fill('prstatus_zh', ProductStatus(product.PRstatus).zh_value)
+        product.fill('interrupt', False if product.PRstatus < ProductStatus.interrupt.value else True)  # 是否中止
         now = datetime.now()
         countdown = None
         if product.PRtimeLimeted:
@@ -82,8 +87,8 @@ class CProduct(object):
         product.fill('tirules', self._query_rules(RoleType.ticketrole.value))
         product.fill('scorerule', self._query_rules(RoleType.activationrole.value))
         product.fill('apply_num', self._query_award_num(product))
-        show_record = True if product.PRstatus == ProductStatus.over.value else False
-        product.fill('show_record', show_record)
+        # show_record = True if product.PRstatus == ProductStatus.over.value else False
+        # product.fill('show_record', show_record)  # 0618 fix 目前无需"动态"区域出现
         verified = True if is_user() and User.query.filter(User.isdelete == false(),
                                                            User.USid == getattr(request, 'user').id
                                                            ).first().USidentification else False
@@ -214,14 +219,12 @@ class CProduct(object):
                                  })
             product = Product.create(product_dict)
             db.session.add(product)
-        # if product.PRtimeLimeted:
-
-        # todo 分限时 不 限时
-        # 异步任务: 开始
-        # self._create_celery_task(ticket.TIid, ticket_dict.get('TIstartTime'))
-        # # 异步任务: 结束
-        # self._create_celery_task(ticket.TIid, ticket_dict.get('TIendTime'), start=False)
-        # self.BaseAdmin.create_action(AdminActionS.insert.value, 'Ticket', ticket.TIid)
+        if product.PRtimeLimeted:  # 限时商品，添加异步任务
+            add_async_task(func=start_product, start_time=product.PRissueStartTime, func_args=(product.PRid,),
+                           conn_id='start_product{}'.format(product.PRid))
+            add_async_task(func=end_product, start_time=product.PRissueEndTime, func_args=(product.PRid,),
+                           conn_id='end_product{}'.format(product.PRid))
+        self.base_admin.create_action(AdminActionS.insert.value, 'Product', product.PRid)
         return Success('创建成功', data={'prid': product.PRid})
 
     @token_required
@@ -244,15 +247,17 @@ class CProduct(object):
                                           OrderMain.PRid == product.PRid).first():
                     raise StatusError('暂时无法直接删除已产生购买记录的商品')
                 product.update({'isdelete': True})
-                # self._cancle_celery_task('start_ticket{}'.format(ticket.TIid))
-                # self._cancle_celery_task('end_ticket{}'.format(ticket.TIid))
-                # self.BaseAdmin.create_action(AdminActionS.delete.value, 'Ticket', ticket.TIid)
+                # 取消异步任务
+                cancel_async_task('start_product{}'.format(product.PRid))
+                cancel_async_task('end_product{}'.format(product.PRid))
+                self.base_admin.create_action(AdminActionS.delete.value, 'Product', product.PRid)
             elif data.get('interrupt'):
                 if product.PRstatus > ProductStatus.active.value:
                     raise StatusError('该状态下无法中止')
                 product.update({'PRstatus': ProductStatus.interrupt.value})
-            # self._cancle_celery_task('start_ticket{}'.format(ticket.TIid))
-            # self._cancle_celery_task('end_ticket{}'.format(ticket.TIid))
+                cancel_async_task('start_product{}'.format(product.PRid))
+                cancel_async_task('end_product{}'.format(product.PRid))
+                self.base_admin.create_action(AdminActionS.update.value, 'Product', product.PRid)
             else:
                 if product.PRstatus < ProductStatus.interrupt.value:
                     raise ParamsError('仅可编辑已中止发放或已结束的商品')
@@ -263,21 +268,24 @@ class CProduct(object):
                                      'PRstatus': ProductStatus.ready.value if product_dict.get(
                                          'PRtimeLimeted') else ProductStatus.active.value
                                      })
-                # todo
                 if product.PRstatus == ProductStatus.interrupt.value:  # 中止的情况
                     current_app.logger.info('edit interrupt ticket')
-                    product.update(product_dict)
+                    product.update(product_dict, null='not')
                 else:  # 已结束的情况，重新发起
                     current_app.logger.info('edit ended ticket')
                     product_dict.update({'PRid': str(uuid.uuid1()),
-                                         'CreatorId': getattr(request, 'user').id})
+                                         'CreatorId': getattr(request, 'user').id,
+                                         'CreatorType': getattr(request, 'user').model})
                     product = Product.create(product_dict)
-                # self._cancle_celery_task('start_ticket{}'.format(ticket.TIid))
-                # self._cancle_celery_task('end_ticket{}'.format(ticket.TIid))
-                # self._create_celery_task(ticket.TIid, ticket_dict.get('TIstartTime'))
-                # self._create_celery_task(ticket.TIid, ticket_dict.get('TIendTime'), start=False)
+                cancel_async_task('start_product{}'.format(product.PRid))
+                cancel_async_task('end_product{}'.format(product.PRid))
+                if product.PRtimeLimeted:  # 限时商品，添加异步任务
+                    add_async_task(func=start_product, start_time=product.PRissueStartTime, func_args=(product.PRid,),
+                                   conn_id='start_product{}'.format(product.PRid))
+                    add_async_task(func=end_product, start_time=product.PRissueEndTime, func_args=(product.PRid,),
+                                   conn_id='end_product{}'.format(product.PRid))
+                self.base_admin.create_action(AdminActionS.insert.value, 'Product', product.PRid)
             db.session.add(product)
-            # self.BaseAdmin.create_action(AdminActionS.update.value, 'Ticket', ticket.TIid)
         return Success('编辑成功', data={'prid': product.PRid})
 
     def _validate_ticket_param(self, data):
@@ -322,7 +330,7 @@ class CProduct(object):
         prlineprice, prtrueprice = map(lambda x: validate_price(x, can_zero=False),
                                        (data.get('prlineprice'), data.get('prtrueprice')))
         latitude, longitude = self.check_lat_and_long(data.get('latitude'), data.get('longitude'))
-        prnum = data.get('prnum')
+        prnum = data.get('prnum') if prtimelimeted else 99999999
         if not isinstance(prnum, int) or int(prnum) <= 0:
             raise ParamsError('请输入合理的商品数量')
 
@@ -364,13 +372,47 @@ class CProduct(object):
         data = parameter_required('param')
         param = data.get('param')
         try:
-            prid, secret_usid = str(param).split('&')
+            omid, secret_usid = str(param).split('&')
+            if not omid.startswith('omid'):
+                raise ValueError
         except ValueError:
-            raise ParamsError('试用码无效')
+            raise ParamsError('该二维码无效')
+        current_app.logger.info('omid: {}, secret_usid: {}'.format(omid, secret_usid))
+        omid = str(omid).split('=')[-1]
+        secret_usid = str(secret_usid).split('=')[-1]
+        current_app.logger.info('splited, omid: {}, secret_usid: {}'.format(omid, secret_usid))
+        if not omid or not secret_usid:
+            raise StatusError('该试用码无效')
+        ticket_usid = self.cuser._base_decode(secret_usid)
+        ticket_user = User.query.filter(User.isdelete == false(),
+                                        User.USid == ticket_usid).first_('无效试用码')
+        om = OrderMain.query.filter(OrderMain.isdelete == false(),
+                                    OrderMain.OMid == omid).first_('订单状态异常')
+        if om.OMstatus != OrderStatus.has_won.value:
+            current_app.logger.error('om status: {}'.format(om.TSOstatus))
+            raise StatusError('提示：该二维码已被核销过')
+        pr = Product.query.filter(Product.PRid == om.PRid).first()
+        if pr.PRtimeLimeted and (pr.PRuseStartTime <= datetime.now() <= pr.PRuseEndTime):
+            raise StatusError('当前时间不在该券有效使用时间内')
 
-        # todo
+        user = User.query.join(ProductVerifier, ProductVerifier.PVphone == User.UStelephone
+                               ).join(Product, Product.SUid == ProductVerifier.SUid
+                                      ).filter(User.isdelete == false(), User.USid == getattr(request, 'user').id,
+                                               ProductVerifier.SUid == pr.SUid
+                                               ).first_('请确认您是否拥有该券的核销权限')
 
-        return Success('门票验证成功', data='sdafsdagq2903217u45r8qfasdklh')
+        with db.auto_commit():
+            # 订单改状态
+            om.update({'OMstatus': OrderStatus.completed.value})
+            db.session.add(om)
+            # 核销记录
+            tvr = ProductVerifiedRecord.create({'PVRid': str(uuid.uuid1()),
+                                                'ownerId': ticket_user.USid,
+                                                'VerifierId': user.USid,
+                                                'OMid': om.OMid,
+                                                'param': param})
+            db.session.add(tvr)
+        return Success('二维码验证成功', data=tvr.PVRid)
 
     def _check_time(self, time_model, fmt='%Y/%m/%d'):
         if isinstance(time_model, datetime):
@@ -413,9 +455,10 @@ class CProduct(object):
         params = '{}&sttype={}'.format(params, ShareType.promotion.value)
         params_key = cuser.shorten_parameters(params, usid, 'params')
         wxacode_path = cuser.wxacode_unlimit(
-            usid, {'params': params_key}, img_name='{}{}'.format(usid, prid),  is_hyaline=True)
+            usid, {'params': params_key}, img_name='{}{}'.format(usid, prid), is_hyaline=True)
         local_path, promotion_path = PlayPicture().create_ticket(
-            product.PRimg, product.PRname, str(0), usid, prid, wxacode_path, starttime, endtime, starttime_g, endtime_g)
+            product.PRimg, product.PRname, str(0), usid, prid, wxacode_path, product.PRlinePrice,
+            product.PRtruePrice, starttime, endtime, starttime_g, endtime_g)
         if current_app.config.get('IMG_TO_OSS'):
             try:
                 qiniu_oss.save(local_path, filename=promotion_path[1:])
@@ -427,28 +470,3 @@ class CProduct(object):
             'promotion_path': promotion_path,
             'scene': scene
         })
-
-    @staticmethod
-    def list_role():
-        return Success(data=Agreement.query.filter_by(isdelete=False).order_by(Agreement.AMtype.asc()).all())
-
-    @admin_required
-    def update_role(self):
-        data = parameter_required('amtype')
-        # amtype = int(data.get('amtype', 0) or 0)
-        with db.auto_commit():
-            amtype = self._check_roletype(data.get('amtype', 0))
-            role = Agreement.query.filter_by(AMtype=amtype, isdelete=False).first()
-            if not role:
-                raise ParamsError('规则失效')
-            role.AMcontent = data.get('amcontent')
-        return Success('更新成功')
-
-    def _check_roletype(self, amtype):
-        try:
-            amtype_ = int(amtype or 0)
-            amtype_ = RoleType(amtype_).value
-            return amtype_
-        except:
-            current_app.logger.info('非法类型 {}'.format(amtype))
-            raise ParamsError('规则不存在')

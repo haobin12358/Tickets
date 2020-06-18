@@ -13,6 +13,9 @@ class AUser(Resource):
             'my_wallet': self.cuser.my_wallet,
             'identification': self.cuser.identification,
             'get_admin_list': self.cuser.get_admin_list,  # 获取管理员列表
+            'list_user_commison': self.cuser.list_user_commison,  # 销售商列表(后台佣金)
+            'list_fans': self.cuser.list_fans,  # 获取某人粉丝列表
+            'data_overview': self.cuser.user_data_overview,  # 用户数据折线图概览
         }
         return apis
 
@@ -28,5 +31,6 @@ class AUser(Resource):
             'add_admin_by_superadmin': self.cuser.add_admin_by_superadmin,  # 添加管理员
             'update_admin': self.cuser.update_admin,  # 更新管理员信息
             'update_admin_password': self.cuser.update_admin_password,  # 修改管理员密码
+            'supplizer_login': self.cuser.supplizer_login,  # 供应商登录
         }
         return apis

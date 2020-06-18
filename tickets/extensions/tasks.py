@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from flask import current_app
-from sqlalchemy import false, or_
-from datetime import timedelta, datetime
+from sqlalchemy import false
+from datetime import timedelta
 from .register_ext import celery, db, conn
 from ..config.enums import ProductStatus
 from ..models import Product
@@ -93,7 +93,7 @@ def start_product(prid):
 @celery.task()
 def end_product(prid):
     current_app.logger.info('修改限时商品为结束 prid {}'.format(prid))
-    # from planet.control.CTicket import CTicket
+    from tickets.control.COrder import COrder
     try:
         with db.auto_commit():
             product = Product.query.filter(Product.isdelete == false(), Product.PRid == prid).first()
@@ -103,9 +103,8 @@ def end_product(prid):
             if product.PRstatus != ProductStatus.active.value:
                 current_app.logger.error(">>> 该限时商品状态异常, prstatus: {} <<<".format(product.PRstatus))
                 return
-            # 开奖 + 未中奖退钱
-            # todo 活跃分 只改状态
-            # CTicket().ticket_award_task(ticket)
+            # 开奖 + 未中奖 改订单状态
+            COrder().product_score_award(product)
             product.PRstatus = ProductStatus.over.value
     except Exception as e:
         current_app.logger.error("该票修改为结束时出错 : {} <<<".format(e))
