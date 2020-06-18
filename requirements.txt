@@ -22,6 +22,7 @@ MarkupSafe==1.1.1
 numpy==1.18.5
 opencv-python==4.2.0.34
 Pillow==7.1.2
+pycrypto==2.6.1
 PyMySQL==0.9.3
 python-dateutil==2.8.1
 python-editor==1.0.4
