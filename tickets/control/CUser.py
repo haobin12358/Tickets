@@ -138,6 +138,7 @@ class CUser(object):
                     user_dict.setdefault('USsupper3', upperd.USsupper2)
                 user = User.create(user_dict)
             db.session.add(user)
+            db.session.flush()
             if upperd:
                 today = datetime.now().date()
                 uin_exist = UserInvitation.query.filter(

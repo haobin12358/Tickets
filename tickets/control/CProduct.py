@@ -279,10 +279,11 @@ class CProduct(object):
                     product = Product.create(product_dict)
                 cancel_async_task('start_product{}'.format(product.PRid))
                 cancel_async_task('end_product{}'.format(product.PRid))
-                add_async_task(func=start_product, start_time=product.PRissueStartTime, func_args=(product.PRid,),
-                               conn_id='start_product{}'.format(product.PRid))
-                add_async_task(func=end_product, start_time=product.PRissueEndTime, func_args=(product.PRid,),
-                               conn_id='end_product{}'.format(product.PRid))
+                if product.PRtimeLimeted:  # 限时商品，添加异步任务
+                    add_async_task(func=start_product, start_time=product.PRissueStartTime, func_args=(product.PRid,),
+                                   conn_id='start_product{}'.format(product.PRid))
+                    add_async_task(func=end_product, start_time=product.PRissueEndTime, func_args=(product.PRid,),
+                                   conn_id='end_product{}'.format(product.PRid))
                 self.base_admin.create_action(AdminActionS.insert.value, 'Product', product.PRid)
             db.session.add(product)
         return Success('编辑成功', data={'prid': product.PRid})
@@ -389,7 +390,7 @@ class CProduct(object):
                                     OrderMain.OMid == omid).first_('订单状态异常')
         if om.OMstatus != OrderStatus.has_won.value:
             current_app.logger.error('om status: {}'.format(om.TSOstatus))
-            raise StatusError('该已使用')
+            raise StatusError('提示：该二维码已被核销过')
         pr = Product.query.filter(Product.PRid == om.PRid).first()
         if pr.PRtimeLimeted and (pr.PRuseStartTime <= datetime.now() <= pr.PRuseEndTime):
             raise StatusError('当前时间不在该券有效使用时间内')
