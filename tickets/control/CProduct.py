@@ -87,8 +87,8 @@ class CProduct(object):
         product.fill('tirules', self._query_rules(RoleType.ticketrole.value))
         product.fill('scorerule', self._query_rules(RoleType.activationrole.value))
         product.fill('apply_num', self._query_award_num(product))
-        show_record = True if product.PRstatus == ProductStatus.over.value else False
-        product.fill('show_record', show_record)
+        # show_record = True if product.PRstatus == ProductStatus.over.value else False
+        # product.fill('show_record', show_record)  # 0618 fix 目前无需"动态"区域出现
         verified = True if is_user() and User.query.filter(User.isdelete == false(),
                                                            User.USid == getattr(request, 'user').id
                                                            ).first().USidentification else False
@@ -394,7 +394,7 @@ class CProduct(object):
         if pr.PRtimeLimeted and (pr.PRuseStartTime <= datetime.now() <= pr.PRuseEndTime):
             raise StatusError('当前时间不在该券有效使用时间内')
 
-        user = User.query.join(ProductVerifier, ProductVerifier.PVphone == User.UStelphone
+        user = User.query.join(ProductVerifier, ProductVerifier.PVphone == User.UStelephone
                                ).join(Product, Product.SUid == ProductVerifier.SUid
                                       ).filter(User.isdelete == false(), User.USid == getattr(request, 'user').id,
                                                ProductVerifier.SUid == pr.SUid

@@ -104,7 +104,7 @@ def end_product(prid):
                 current_app.logger.error(">>> 该限时商品状态异常, prstatus: {} <<<".format(product.PRstatus))
                 return
             # 开奖 + 未中奖 改订单状态
-            COrder.product_score_award(product)
+            COrder().product_score_award(product)
             product.PRstatus = ProductStatus.over.value
     except Exception as e:
         current_app.logger.error("该票修改为结束时出错 : {} <<<".format(e))

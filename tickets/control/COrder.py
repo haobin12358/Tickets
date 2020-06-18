@@ -151,13 +151,14 @@ class COrder():
                 # omdict.setdefault('USCommission2', user.USCommission2)
                 # omdict.setdefault('USCommission3', user.USCommission3)
             om = OrderMain.create(omdict)
-            product.PRnum -= 1  # 商品库存修改
+            # product.PRnum -= 1  # 商品库存修改 # 0618 fix 非商品逻辑，不能改库存数
             db.session.add(product)
             db.session.add(om)
         body = product.PRname[:16] + '...'
         openid = user.USopenid1
-        # 1分钟 自动取消
-        add_async_task(auto_cancle_order, now + timedelta(minutes=1), (omid,), conn_id='autocancle{}'.format(omid))
+        # 直购订单 不付款 1分钟 自动取消
+        if not product.PRtimeLimeted:
+            add_async_task(auto_cancle_order, now + timedelta(minutes=1), (omid,), conn_id='autocancle{}'.format(omid))
         pay_args = self._add_pay_detail(opayno=opayno, body=body, mount_price=mount_price, openid=openid,
                                         opayType=ompaytype, redirect=redirect)
         response = {
