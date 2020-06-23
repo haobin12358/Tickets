@@ -16,6 +16,7 @@ class AUser(Resource):
             'list_user_commison': self.cuser.list_user_commison,  # 销售商列表(后台佣金)
             'list_fans': self.cuser.list_fans,  # 获取某人粉丝列表
             'data_overview': self.cuser.user_data_overview,  # 用户数据折线图概览
+            'get_cash_notes': self.cuser.get_cash_notes,  # 获取某人提现申请记录
         }
         return apis
 

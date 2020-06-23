@@ -11,7 +11,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from wtforms import StringField, DecimalField, FieldList, DateField, IntegerField
 from wtforms.validators import DataRequired, Regexp
 
-from tickets.config.enums import ApplyFrom, UserStatus, SupplizerGrade, AdminActionS
+from tickets.config.enums import ApplyFrom, UserStatus, SupplizerGrade, AdminActionS, WexinBankCode
 from tickets.control.BaseControl import BaseAdmin
 from tickets.extensions.base_form import BaseForm
 from tickets.extensions.error_response import AuthorityError, ParamsError, DumpliError, StatusError
@@ -20,12 +20,14 @@ from tickets.extensions.interface.user_interface import admin_required, is_admin
 from tickets.extensions.params_validates import parameter_required
 from tickets.extensions.register_ext import db
 from tickets.extensions.success_response import Success
-from tickets.models import Supplizer, UserWallet, Admin, ProductVerifier, User
+from tickets.models import Supplizer, UserWallet, Admin, ProductVerifier, User, SupplizerAccount
+from tickets.control.CUser import CUser
 
 
 class CSupplizer:
     def __init__(self):
         self.base_admin = BaseAdmin()
+        self.cuser = CUser()
 
     @token_required
     def list(self):
@@ -351,18 +353,66 @@ class CSupplizer:
 
     @token_required
     def set_supplizeraccount(self):
-        raise AuthorityError('功能暂未开放')
+        if not is_supplizer():
+            raise AuthorityError
+        data = request.json
+        cardno = data.get('sacardno')
+        cardno = re.sub(r'\s', '', str(cardno))
+        self.cuser._CUser__check_card_num(cardno)
+        check_res = self.cuser._verify_cardnum(cardno)  # 检验卡号
+        if not check_res.data.get('validated'):
+            raise ParamsError('请输入正确的银行卡号')
+        checked_res = self.cuser._verify_cardnum(data.get('sabankaccount'))
+        # if not checked_res.data.get('validated'):
+        #     raise ParamsError('请输入正确的开票账户银行卡号')
+        checked_name = self.cuser._verify_chinese(data.get('sacardname'))
+        if not checked_name or len(checked_name[0]) < 2:
+            raise ParamsError('请输入正确的开户人姓名')
+        current_app.logger.info('用户输入银行名为:{}'.format(data.get('sabankname')))
+        bankname = check_res.data.get('cnbankname')
+        try:
+            WexinBankCode(bankname)
+        except Exception:
+            raise ParamsError('系统暂不支持该银行提现，请更换银行后重新保存')
+        data['sabankname'] = bankname
+        current_app.logger.info('校验后更改银行名为:{}'.format(data.get('sabankname')))
+
+        sa = SupplizerAccount.query.filter(
+            SupplizerAccount.SUid == request.user.id, SupplizerAccount.isdelete == false()).first()
+        if sa:
+            for key in sa.__dict__:
+                if str(key).lower() in data:
+                    if re.match(r'^(said|suid)$', str(key).lower()):
+                        continue
+                    if str(key).lower() == 'sacardno':
+                        setattr(sa, key, cardno)
+                        continue
+                    setattr(sa, key, data.get(str(key).lower()))
+        else:
+            sa_dict = {}
+            for key in SupplizerAccount.__dict__:
+
+                if str(key).lower() in data:
+                    if not data.get(str(key).lower()):
+                        continue
+                    if str(key).lower() == 'suid':
+                        continue
+                    if str(key).lower() == 'sacardno':
+                        sa_dict.setdefault(key, cardno)
+                        continue
+                    sa_dict.setdefault(key, data.get(str(key).lower()))
+            sa_dict.setdefault('SAid', str(uuid.uuid1()))
+            sa_dict.setdefault('SUid', request.user.id)
+            sa = SupplizerAccount.create(sa_dict)
+            db.session.add(sa)
+
+        return Success('设置供应商账户信息成功')
 
     @token_required
     def get_supplizeraccount(self):
-        raise AuthorityError('功能暂未开放')
-
-        # from flask import request
-        # sa = SupplizerAccount.query.filter(
-        #     SupplizerAccount.SUid == request.user.id, SupplizerAccount.isdelete == False).first()
-        # # if not sa:
-        #
-        # return Success('获取供应商账户信息成功', data=sa)
+        sa = SupplizerAccount.query.filter(
+            SupplizerAccount.SUid == request.user.id, SupplizerAccount.isdelete == false()).first()
+        return Success('获取供应商账户信息成功', data=sa)
 
     @token_required
     def get_verifier(self):

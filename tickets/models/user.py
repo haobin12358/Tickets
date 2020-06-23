@@ -292,3 +292,18 @@ class Supplizer(Base):
     SUlegalPersonIDcardFront = Column(Text, url=True, comment='法人身份证正面')
     SUlegalPersonIDcardBack = Column(Text, url=True, comment='法人身份证正面')
     SUgrade = Column(Integer, default=1, comment='供应商类型 0：普通货物， 1：虚拟商品供应商')
+
+
+class SupplizerAccount(Base):
+    """供应商账户信息表"""
+    __tablename__ = 'SupplizerAccount'
+    SAid = Column(String(64), primary_key=True)
+    SUid = Column(String(64), comment='供应商id')
+    SAbankName = Column(Text, comment='开户行')
+    SAbankDetail = Column(Text, comment='开户网点详情')
+    SAcardNo = Column(String(32), comment='卡号')
+    SAcardName = Column(Text, comment='开户人')
+    SACompanyName = Column(Text, comment='公司名')
+    SAICIDcode = Column(Text, comment='纳税识别码')
+    SAaddress = Column(Text, comment='地址电话')
+    SAbankAccount = Column(Text, comment='开票信息的银行账户')
