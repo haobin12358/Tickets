@@ -22,7 +22,7 @@ from tickets.extensions.success_response import Success
 from tickets.extensions.tasks import add_async_task, auto_cancle_order
 from tickets.extensions.weixin.pay import WeixinPayError
 from tickets.extensions.register_ext import qiniu_oss
-from tickets.models import User, Product, UserWallet, Commision, OrderPay, OrderMain, UserCommission
+from tickets.models import User, Product, UserWallet, Commision, OrderPay, OrderMain, UserCommission, Supplizer
 
 
 class COrder():
@@ -477,14 +477,37 @@ class COrder():
         default_level1commision, default_level2commision, default_level3commision, default_planetcommision = json.loads(
             commision.Levelcommision
         )
+        # 平台让利比
+        deviderate = Decimal(commision.DevideRate) / 100
+
         user_level1commision = Decimal(str(default_level1commision)) / 100
         user_level2commision = Decimal(str(default_level2commision)) / 100
         user_level3commision = Decimal(str(default_level3commision)) / 100
         planet_rate = Decimal(str(default_planetcommision)) / 100  # 平台抽成比例
 
         mountprice = Decimal(str(om.OMtrueMount))  # 根据支付实价分佣
+        deviderprice = mountprice * deviderate     # 商品供应商佣金
         planet_commision = mountprice * planet_rate
-        user_commision = mountprice - planet_commision  # 用户获得, 是总价 - 平台获得
+        user_commision = mountprice - deviderprice - planet_commision  # 用户获得, 是总价- 供应商佣金 - 平台获得
+        # 供应商佣金记录
+
+        supplizer = Supplizer.query.filter(Supplizer.SUid == om.PRcreateId, Supplizer.isdelete == false()).first()
+
+        commisionfor = ApplyFrom.supplizer.value if supplizer else ApplyFrom.platform.value
+
+        commision_account = UserCommission.create({
+            'UCid': str(uuid.uuid1()),
+            'OMid': om.OMid,
+            'CommisionFor': commisionfor,
+            'UCcommission': self._get_two_float(deviderprice),
+            'USid': om.PRcreateId,
+            'PRname': om.PRname,
+            'PRimg': om.PRimg,
+            'UCstatus': UserCommissionStatus.in_account.value,  # 佣金实时到账
+            'FromUsid': user.USid
+        })
+        db.session.add(commision_account)
+
         if up1_user:
             up1_base = self._get_two_float(user_commision * user_level1commision)
             user_commision -= up1_base
@@ -577,27 +600,27 @@ class COrder():
                                      Decimal(str(user_commision.UCcommission))
                 db.session.add(user_wallet)
             else:
-                # 创建和更新一个逻辑 供应商不存在，创建逻辑保留了，更新逻辑与普通用户到账逻辑一样了
-                if user_commision.CommisionFor == ApplyFrom.supplizer.value:
-                    user_wallet_instance = UserWallet.create({
-                        'UWid': str(uuid.uuid1()),
-                        'USid': user_commision.USid,
-                        'UWexpect': user_commision.UCcommission,
-                        'UWbalance': 0,
-                        'UWtotal': 0,
-                        'UWcash': 0,
-                        'CommisionFor': user_commision.CommisionFor
-                    })
-                else:
-                    user_wallet_instance = UserWallet.create({
-                        'UWid': str(uuid.uuid1()),
-                        'USid': user_commision.USid,
-                        'UWbalance': user_commision.UCcommission,
-                        'UWtotal': user_commision.UCcommission,
-                        'UWcash': user_commision.UCcommission,
-                        # 'UWexpect': user_commision.UCcommission,
-                        'CommisionFor': user_commision.CommisionFor
-                    })
+                # 创建和更新一个逻辑 供应商创建逻辑/更新逻辑与普通用户到账逻辑一样了
+                # if user_commision.CommisionFor == ApplyFrom.supplizer.value:
+                #     user_wallet_instance = UserWallet.create({
+                #         'UWid': str(uuid.uuid1()),
+                #         'USid': user_commision.USid,
+                #         'UWexpect': user_commision.UCcommission,
+                #         'UWbalance': 0,
+                #         'UWtotal': 0,
+                #         'UWcash': 0,
+                #         'CommisionFor': user_commision.CommisionFor
+                #     })
+                # else:
+                user_wallet_instance = UserWallet.create({
+                    'UWid': str(uuid.uuid1()),
+                    'USid': user_commision.USid,
+                    'UWbalance': user_commision.UCcommission,
+                    'UWtotal': user_commision.UCcommission,
+                    'UWcash': user_commision.UCcommission,
+                    # 'UWexpect': user_commision.UCcommission,
+                    'CommisionFor': user_commision.CommisionFor
+                })
                 db.session.add(user_wallet_instance)
             current_app.logger.info('佣金到账数量 {}'.format(user_commision))
 

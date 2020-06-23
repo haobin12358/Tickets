@@ -21,6 +21,9 @@ class Commision(Base):
     ReduceRatio = Column(String(32), default='["0", "0", "0", "0"]', comment='级差减额, 共四级')
     IncreaseRatio = Column(String(32), default='["0", "0", "0", "0"]', comment='级差增额')
 
+    # 平台统一供应商让利比
+    DevideRate = Column(DECIMAL(scale=2), comment='平台统一供应商佣金比')
+
     @classmethod
     def devide_rate_baseline(cls):
         commision = cls.query.filter(cls.isdelete == False).first()
