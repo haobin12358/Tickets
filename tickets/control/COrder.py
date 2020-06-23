@@ -478,7 +478,7 @@ class COrder():
             commision.Levelcommision
         )
         # 平台让利比
-        deviderate = Decimal(commision.DevideRate) / 100
+        deviderate = Decimal(commision.DevideRate) / 100 if commision.DevideRate else 0
 
         user_level1commision = Decimal(str(default_level1commision)) / 100
         user_level2commision = Decimal(str(default_level2commision)) / 100
