@@ -494,13 +494,13 @@ class COrder():
         supplizer = Supplizer.query.filter(Supplizer.SUid == om.PRcreateId, Supplizer.isdelete == false()).first()
 
         commisionfor = ApplyFrom.supplizer.value if supplizer else ApplyFrom.platform.value
-
+        suid = supplizer.SUid if supplizer else 0
         commision_account = UserCommission.create({
             'UCid': str(uuid.uuid1()),
             'OMid': om.OMid,
             'CommisionFor': commisionfor,
             'UCcommission': self._get_two_float(deviderprice),
-            'USid': om.PRcreateId,
+            'USid': suid,
             'PRname': om.PRname,
             'PRimg': om.PRimg,
             'UCstatus': UserCommissionStatus.in_account.value,  # 佣金实时到账
