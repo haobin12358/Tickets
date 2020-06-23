@@ -6,7 +6,7 @@ from flask import current_app, request
 
 from tickets.config.enums import ApplyStatus, ApprovalAction, AdminActionS, ApplyFrom, WXLoginFrom, CashFor
 from tickets.control.BaseControl import BaseApproval, BaseAdmin
-from tickets.extensions.error_response import NotFound, AuthorityError, ParamsError
+from tickets.extensions.error_response import NotFound, AuthorityError, ParamsError, SystemError
 from tickets.extensions.interface.user_interface import token_required, is_admin, is_supplizer
 from tickets.extensions.params_validates import parameter_required
 from tickets.extensions.register_ext import db
@@ -223,26 +223,21 @@ class CApproval(BaseApproval):
         if not approval_model:
             return
         from tickets.control.COrder import COrder
+        corder = COrder()
         cn = CashNotes.query.filter_by_(CNid=approval_model.AVcontent).first()
         uw = UserWallet.query.filter_by_(USid=approval_model.AVstartid).first()
         if not cn or not uw:
             raise SystemError('提现数据异常,请处理')
         flow_dict = dict(CFWid=str(uuid.uuid1()), CNid=cn.CNid)
         if cn.CommisionFor == ApplyFrom.user.value:
-            res = COrder().pay_to_user(cn)  # 小程序提现
-            # else:
-            #     res = cpay._pay_to_user(cn)  # 提现并记录流水(H5端)
-            # flow_dict['amout'] = int(Decimal(cn.CNcashNum).quantize(Decimal('0.00')) * 100)
-            # flow_dict['CFWfrom'] = CashFor.wechat.value
-        # else:
-        #     res = cpay._pay_to_bankcard(cn)
-        #     flow_dict['amout'] = res.amount
-        #     flow_dict['cmms_amt'] = res.cmms_amt
-        #     flow_dict['CFWfrom'] = CashFor.bankcard.value
+            res = corder.pay_to_user(cn)  # 小程序提现
+            flow_dict['amout'] = int(Decimal(cn.CNcashNum).quantize(Decimal('0.00')) * 100)
+            flow_dict['CFWfrom'] = CashFor.wechat.value
         else:
-            from collections import namedtuple
-            FakeClass = namedtuple('FakeClass', 'partner_trade_no')
-            res = FakeClass(partner_trade_no='00000000')
+            res = corder._pay_to_bankcard(cn)
+            flow_dict['amout'] = res.amount
+            flow_dict['cmms_amt'] = res.cmms_amt
+            flow_dict['CFWfrom'] = CashFor.bankcard.value
         flow_dict['partner_trade_no'] = res.partner_trade_no
         response = json.dumps(res)
         flow_dict['response'] = response

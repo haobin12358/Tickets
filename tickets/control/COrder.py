@@ -10,7 +10,7 @@ from decimal import Decimal
 from flask import request, current_app
 from sqlalchemy import false, cast, Date, func
 
-from tickets.config.enums import PayType, ProductStatus, UserCommissionStatus, ApplyFrom, OrderStatus
+from tickets.config.enums import PayType, ProductStatus, UserCommissionStatus, ApplyFrom, OrderStatus, WexinBankCode
 from tickets.config.http_config import API_HOST
 from tickets.config.timeformat import format_for_web_second, format_forweb_no_HMS
 from tickets.extensions.error_response import ParamsError, StatusError, AuthorityError
@@ -199,7 +199,7 @@ class COrder():
                 partner_trade_no=self.wx_pay.nonce_str,
                 openid=user.USopenid2,
                 amount=int(Decimal(cn.CNcashNum).quantize(Decimal('0.00')) * 100),
-                desc="零钱转出",
+                desc="优惠下沙-零钱转出",
                 spbill_create_ip=self.wx_pay.remote_addr
             )
             current_app.logger.info('微信提现到零钱, response: {}'.format(request))
@@ -207,6 +207,50 @@ class COrder():
             current_app.logger.error('微信提现返回错误：{}'.format(e))
             raise StatusError('微信商户平台: {}'.format(e))
         return result
+
+    def _pay_to_bankcard(self, cn):
+        """
+        付款到银行卡号
+        :param cn:
+        :return:
+        """
+        try:
+            enc_bank_no = self._to_encrypt(cn.CNcardNo)
+            enc_true_name = self._to_encrypt(cn.CNcardName)
+            bank_code = WexinBankCode(cn.CNbankName).zh_value
+        except Exception as e:
+            current_app.logger.error('提现到银行卡，参数加密出错：{}'.format(e))
+            raise ParamsError('服务器繁忙，请稍后再试')
+
+        try:
+            result = self.wx_pay.pay_individual_to_card(
+                partner_trade_no=self.wx_pay.nonce_str,
+                enc_bank_no=enc_bank_no,
+                enc_true_name=enc_true_name,
+                bank_code=bank_code,
+                amount=int(Decimal(cn.CNcashNum).quantize(Decimal('0.00')) * 100)
+            )
+            current_app.logger.info('微信提现到银行卡, response: {}'.format(request))
+        except Exception as e:
+            current_app.logger.error('微信提现返回错误：{}'.format(e))
+            raise StatusError('微信商户平台: {}'.format(e))
+        return result
+
+    def _to_encrypt(self, message):
+        """银行卡信息加密"""
+        from tickets.config.secret import apiclient_public
+        import base64
+        from Cryptodome.PublicKey import RSA
+        from Cryptodome.Cipher import PKCS1_OAEP
+
+        with open(apiclient_public, 'r') as f:
+            # pubkey = rsa.PublicKey.load_pkcs1(f.read().encode())
+            pubkey = f.read()
+            rsa_key = RSA.importKey(pubkey)
+            # crypto = rsa.encrypt(message.encode(), pubkey)
+            cipher = PKCS1_OAEP.new(rsa_key)
+            crypto = cipher.encrypt(message.encode())
+        return base64.b64encode(crypto).decode()
 
     def list(self):
         data = parameter_required()
@@ -486,7 +530,7 @@ class COrder():
         planet_rate = Decimal(str(default_planetcommision)) / 100  # 平台抽成比例
 
         mountprice = Decimal(str(om.OMtrueMount))  # 根据支付实价分佣
-        deviderprice = mountprice * deviderate     # 商品供应商佣金
+        deviderprice = mountprice * deviderate  # 商品供应商佣金
         planet_commision = mountprice * planet_rate
         user_commision = mountprice - deviderprice - planet_commision  # 用户获得, 是总价- 供应商佣金 - 平台获得
         # 供应商佣金记录

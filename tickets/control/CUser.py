@@ -13,7 +13,7 @@ from tickets.common.default_head import GithubAvatarGenerator
 from tickets.common.id_check import DOIDCheck
 from tickets.config.enums import MiniUserGrade, ApplyFrom, ActivationTypeEnum, UserLoginTimetype, \
     AdminLevel, AdminStatus, AdminAction, AdminActionS, UserStatus, ApprovalAction, OrderStatus, PayType, \
-    UserCommissionStatus, WXLoginFrom
+    UserCommissionStatus, WXLoginFrom, BankName, WexinBankCode
 from tickets.config.secret import MiniProgramAppId, MiniProgramAppSecret
 from tickets.control.BaseControl import BaseController, BaseAdmin, BaseApproval
 from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError, NotFound, \
@@ -29,7 +29,7 @@ from tickets.extensions.weixin import WeixinLogin
 from tickets.extensions.weixin.mp import WeixinMPError
 from tickets.models import User, SharingParameters, UserLoginTime, UserWallet, ProductVerifier, AddressProvince, \
     AddressArea, AddressCity, IDCheck, UserMedia, UserInvitation, Admin, AdminNotes, UserAccessApi, UserCommission, \
-    Supplizer, CashNotes, OrderMain
+    Supplizer, CashNotes, OrderMain, SupplizerAccount
 
 
 class CUser(object):
@@ -548,9 +548,10 @@ class CUser(object):
         else:
             commision_for = ApplyFrom.user.value
         # 提现资质校验
-        # self.__check_apply_cash(commision_for)
+        self.__check_apply_cash(commision_for)
         # data = parameter_required(('cncashnum', 'cncardno', 'cncardname', 'cnbankname', 'cnbankdetail'))
         data = parameter_required(('cncashnum',))
+        applyplatform = data.get('applyplatform')
         try:
             cncashnum = data.get('cncashnum')
             if not re.match(r'(^[1-9](\d+)?(\.\d{1,2})?$)|(^0$)|(^\d\.\d{1,2}$)', str(cncashnum)):
@@ -561,7 +562,7 @@ class CUser(object):
             raise ParamsError('提现金额格式错误')
         uw = UserWallet.query.filter(
             UserWallet.USid == request.user.id,
-            UserWallet.isdelete == False,
+            UserWallet.isdelete == false(),
             UserWallet.CommisionFor == commision_for
         ).first()
         balance = uw.UWcash if uw else 0
@@ -574,35 +575,33 @@ class CUser(object):
         uw.UWcash = Decimal(str(uw.UWcash)) - Decimal(cncashnum)
         kw = {}
         if commision_for == ApplyFrom.supplizer.value:
-            pass
-            # todo 供应商提现
-            # sa = SupplizerAccount.query.filter(
-            #     SupplizerAccount.SUid == request.user.id, SupplizerAccount.isdelete == False).first()
-            # cn = CashNotes.create({
-            #     'CNid': str(uuid.uuid1()),
-            #     'USid': request.user.id,
-            #     'CNbankName': sa.SAbankName,
-            #     'CNbankDetail': sa.SAbankDetail,
-            #     'CNcardNo': sa.SAcardNo,
-            #     'CNcashNum': Decimal(cncashnum).quantize(Decimal('0.00')),
-            #     'CNcardName': sa.SAcardName,
-            #     'CommisionFor': commision_for
-            # })
-            # kw.setdefault('CNcompanyName', sa.SACompanyName)
-            # kw.setdefault('CNICIDcode', sa.SAICIDcode)
-            # kw.setdefault('CNaddress', sa.SAaddress)
-            # kw.setdefault('CNbankAccount', sa.SAbankAccount)
+            sa = SupplizerAccount.query.filter(
+                SupplizerAccount.SUid == request.user.id, SupplizerAccount.isdelete == false()).first()
+            cn = CashNotes.create({
+                'CNid': str(uuid.uuid1()),
+                'USid': request.user.id,
+                'CNbankName': sa.SAbankName,
+                'CNbankDetail': sa.SAbankDetail,
+                'CNcardNo': sa.SAcardNo,
+                'CNcashNum': Decimal(cncashnum).quantize(Decimal('0.00')),
+                'CNcardName': sa.SAcardName,
+                'CommisionFor': commision_for
+            })
+            kw.setdefault('CNcompanyName', sa.SACompanyName)
+            kw.setdefault('CNICIDcode', sa.SAICIDcode)
+            kw.setdefault('CNaddress', sa.SAaddress)
+            kw.setdefault('CNbankAccount', sa.SAbankAccount)
         else:
-            user = User.query.filter(User.USid == request.user.id, User.isdelete == False).first()
+            user = User.query.filter(User.USid == request.user.id, User.isdelete == false()).first()
 
             cn = CashNotes.create({
                 'CNid': str(uuid.uuid1()),
                 'USid': user.USid,
                 'CNcashNum': Decimal(cncashnum).quantize(Decimal('0.00')),
                 'CommisionFor': commision_for,
-                'ApplyPlatform': WXLoginFrom.miniprogram.value
             })
-
+            if str(applyplatform) == str(WXLoginFrom.miniprogram.value):
+                setattr(cn, 'ApplyPlatform', WXLoginFrom.miniprogram.value)
         db.session.add(cn)
         db.session.flush()
         # 创建审批流
@@ -612,20 +611,26 @@ class CUser(object):
 
     def __check_apply_cash(self, commision_for):
         """校验提现资质"""
-        user = User.query.filter(User.USid == request.user.id, User.isdelete == False).first()
-        if not user or not (user.USrealname and user.USidentification):
-            raise InsufficientConditionsError('没有实名认证')
-        #
-        # elif commision_for == ApplyFrom.supplizer.value:
-        #     sa = SupplizerAccount.query.filter(
-        #         SupplizerAccount.SUid == request.user.id, SupplizerAccount.isdelete == False).first()
-        #     if not sa or not (sa.SAbankName and sa.SAbankDetail and sa.SAcardNo and sa.SAcardName and sa.SAcardName
-        #                       and sa.SACompanyName and sa.SAICIDcode and sa.SAaddress and sa.SAbankAccount):
-        #         raise InsufficientConditionsError('账户信息和开票不完整，请补全账户信息和开票信息')
-        #     try:
-        #         WexinBankCode(sa.SAbankName)
-        #     except Exception:
-        #         raise ParamsError('系统暂不支持提现账户中的银行，请在 "设置 - 商户信息 - 提现账户" 重新设置银行卡信息。 ')
+        if commision_for == ApplyFrom.user.value:
+            user = User.query.filter(User.USid == request.user.id, User.isdelete == false()).first()
+            if str(request.json.get('applyplatform')) == str(WXLoginFrom.miniprogram.value):  # 小程序端提现跳过实名建议
+                if not user:
+                    raise InsufficientConditionsError('账户信息错误')
+                else:
+                    return
+            if not user or not (user.USrealname and user.USidentification):
+                raise InsufficientConditionsError('没有实名认证')
+
+        elif commision_for == ApplyFrom.supplizer.value:
+            sa = SupplizerAccount.query.filter(
+                SupplizerAccount.SUid == request.user.id, SupplizerAccount.isdelete == false()).first()
+            if not sa or not (sa.SAbankName and sa.SAbankDetail and sa.SAcardNo and sa.SAcardName and sa.SAcardName
+                              and sa.SACompanyName and sa.SAICIDcode and sa.SAaddress and sa.SAbankAccount):
+                raise InsufficientConditionsError('账户信息和开票不完整，请补全账户信息和开票信息')
+            try:
+                WexinBankCode(sa.SAbankName)
+            except Exception:
+                raise ParamsError('系统暂不支持提现账户中的银行，请在 "设置 - 商户信息 - 提现账户" 重新设置银行卡信息。 ')
 
     def _verify_chinese(self, name):
         """
@@ -1079,6 +1084,63 @@ class CUser(object):
             'supplizer': supplizer
         })
 
+    def __check_card_num(self, num):
+        """初步校验卡号"""
+        if not num:
+            raise ParamsError('卡号不能为空')
+        num = re.sub(r'\s+', '', str(num))
+        if not num:
+            raise ParamsError('卡号不能为空')
+        if not (16 <= len(num) <= 19) or not self.__check_bit(num):
+            raise ParamsError('请输入正确卡号')
+        return True
+
+    def __check_bit(self, num):
+        """
+        *从不含校验位的银行卡卡号采用Luhm校验算法获得校验位
+        *该校验的过程：
+        *1、从卡号最后一位数字开始，逆向将奇数位(1、3、5 等等)相加。
+        *2、从卡号最后一位数字开始，逆向将偶数位数字(0、2、4等等)，先乘以2（如果乘积为两位数，则将其减去9或个位与十位相加的和），再求和。
+        *3、将奇数位总和加上偶数位总和，如果可以被整除，末尾是0 ，如果不能被整除，则末尾为10 - 余数
+        """
+        num_str_list = list(num[:-1])
+        num_str_list.reverse()
+        if not num_str_list:
+            return False
+
+        num_list = []
+        for num_item in num_str_list:
+            num_list.append(int(num_item))
+
+        sum_odd = sum(num_list[1::2])
+        sum_even = sum([n * 2 if n * 2 < 10 else n * 2 - 9 for n in num_list[::2]])
+        luhm_sum = sum_odd + sum_even
+
+        if (luhm_sum % 10) == 0:
+            check_num = 0
+        else:
+            check_num = 10 - (luhm_sum % 10)
+        return check_num == int(num[-1])
+
+    def _verify_cardnum(self, num):
+        """获取所属行"""
+        bank_url = 'https://ccdcapi.alipay.com/validateAndCacheCardInfo.json?cardNo={}&cardBinCheck=true'
+        url = bank_url.format(num)
+        response = requests.get(url).json()
+        if response and response.get('validated'):
+            validated = response.get('validated')
+            bankname = getattr(BankName, response.get('bank'), None)
+            if bankname:
+                bankname = bankname.zh_value
+            else:
+                validated = False
+                bankname = None
+        else:
+            bankname = None
+            validated = False
+
+        return Success('获取银行信息成功', data={'cnbankname': bankname, 'validated': validated})
+
     def __check_password(self, password):
         if not password or len(password) < 4:
             raise ParamsError('密码长度低于4位')
@@ -1134,3 +1196,48 @@ class CUser(object):
         for i in range(n)[::-1]:
             before_n_days.append(str(date.today() - timedelta(days=i)))
         return before_n_days
+
+    @token_required
+    def get_cash_notes(self):
+        today = date.today()
+        data = parameter_required()
+
+        month = data.get('month') or today.month
+        year = data.get('year') or today.year
+
+        cash_notes = CashNotes.query.filter(
+            CashNotes.USid == request.user.id,
+            extract('year', CashNotes.createtime) == year,
+            extract('month', CashNotes.createtime) == month
+        ).order_by(
+            CashNotes.createtime.desc()).all_with_page()
+
+        cn_total = Decimal(0)
+        for cash_note in cash_notes:
+            # if cash_note.CNstatus == CashStatus.agree.value:
+            #     cash_flow = CashFlow.query.filter(CashFlow.isdelete == False,
+            #                                       CashFlow.CNid == cash_note.CNid
+            #                                       ).first()
+            #     if cash_flow and cash_flow.status == 'SUCCESS':
+            #         cash_note = CashStatus.alreadyAccounted.value
+            #         # todo 异步任务完成，这里只处理异常情况
+            # if cash_note.CNstatus == CashStatus.alreadyAccounted.value:
+            if cash_note.CNstatus == ApprovalAction.agree.value:  # todo ??? 可提现余额？？
+                cn_total += Decimal(str(cash_note.CNcashNum))
+            cash_note.fields = [
+                'CNid',
+                'createtime',
+                'CNbankName',
+                'CNbankDetail',
+                'CNcardNo',
+                'CNcardName',
+                'CNcashNum',
+                'CNstatus',
+                'CNrejectReason',
+            ]
+            # cash_note.fill('cnstatus_zh', CashStatus(cash_note.CNstatus).zh_value)
+            # cash_note.fill('cnstatus_en', CashStatus(cash_note.CNstatus).name)
+            cash_note.fill('cnstatus_zh', ApprovalAction(cash_note.CNstatus).zh_value)
+            cash_note.fill('cnstatus_en', ApprovalAction(cash_note.CNstatus).name)
+
+        return Success('获取提现记录成功', data={'cash_notes': cash_notes, 'cntotal': cn_total})
