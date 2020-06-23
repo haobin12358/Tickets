@@ -25,6 +25,7 @@ class CCommision:
         pesonalsalescale = data.get('pesonalsalescale', 0)
         reduceratio = data.get('reduceratio')
         increaseratio = data.get('increaseratio')
+        deviderate = data.get('deviderate')
         if not levelcommision or len(levelcommision) != 4:
             raise ParamsError('请设置四级佣金比')
         for comm in levelcommision:
@@ -49,6 +50,7 @@ class CCommision:
                 'PesonalSaleScale': pesonalsalescale,
                 'ReduceRatio': json.dumps(reduceratio, cls=JSONEncoder),
                 'IncreaseRatio': json.dumps(increaseratio, cls=JSONEncoder),
+                'DevideRate': deviderate,
             }
             [setattr(commision, k, v) for k, v in commission_dict.items() if v is not None and v != '[]']
             # if not commision.InviteNum and not commision.PesonalSale and not commision.GroupSale:
