@@ -51,9 +51,9 @@ class COrder():
                     return self.wx_pay.reply("OK", True).decode()
                 self._commision(pp)  # 佣金到账
                 pp.update({
-                    'PPpaytime': data.get('time_end'),
-                    'PPpaysn': data.get('transaction_id'),
-                    'PPpayJson': json.dumps(data)
+                    'OPaytime': data.get('time_end'),
+                    'OPaysn': data.get('transaction_id'),
+                    'OPayJson': json.dumps(data)
                 })
 
             else:
