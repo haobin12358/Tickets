@@ -51,9 +51,9 @@ class COrder():
                     return self.wx_pay.reply("OK", True).decode()
                 self._commision(pp)  # 佣金到账
                 pp.update({
-                    'PPpaytime': data.get('time_end'),
-                    'PPpaysn': data.get('transaction_id'),
-                    'PPpayJson': json.dumps(data)
+                    'OPaytime': data.get('time_end'),
+                    'OPaysn': data.get('transaction_id'),
+                    'OPayJson': json.dumps(data)
                 })
 
             else:
@@ -459,7 +459,9 @@ class COrder():
         if not om:
             current_app.logger.error("===订单不存在，分佣失败 OPayno = {}===".format(pp.OPayno))
             return
-        user = self._current_user()
+        # user = self._current_user()
+        user = User.query.filter(User.USid == om.USid, User.isdelete == false()).first()
+
         if not user:
             current_app.logger.error("===用户不存在，分佣失败 omid = {} USid = {}===".format(om.OMid, om.USid))
             return
