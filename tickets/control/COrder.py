@@ -177,9 +177,10 @@ class COrder():
             db.session.add(om)
         body = product.PRname[:16] + '...'
         openid = user.USopenid1
-        # 直购订单 不付款 1分钟 自动取消
+        # 直购订单 不付款 5秒后 自动取消
         if not product.PRtimeLimeted:
-            add_async_task(auto_cancle_order, now + timedelta(minutes=1), (omid,), conn_id='autocancle{}'.format(omid))
+            # add_async_task(auto_cancle_order, now + timedelta(minutes=1), (omid,), conn_id='autocancle{}'.format(omid))
+            auto_cancle_order.apply_async(args=(omid,), countdown=5, expires=10, queue='high_priority')
         pay_args = self._add_pay_detail(opayno=opayno, body=body, mount_price=mount_price, openid=openid,
                                         opayType=ompaytype, redirect=redirect)
         response = {
@@ -763,15 +764,12 @@ class COrder():
 
             # 扣除月销量
             today = datetime.now()
-            month_sale_instance = ProductMonthSaleValue.query.filter(
+            ProductMonthSaleValue.query.filter(
                 ProductMonthSaleValue.isdelete == false(),
                 ProductMonthSaleValue.PRid == order_main.PRid,
                 extract('month', ProductMonthSaleValue.createtime) == today.month,
                 extract('year', ProductMonthSaleValue.createtime) == today.year,
-            ).first()
-            if month_sale_instance:
-                month_sale_instance.update({'PMSVnum': month_sale_instance.PMSVnum - 1})
-                db.session.add(month_sale_instance)
+            ).update({'PMSVnum': ProductMonthSaleValue.PMSVnum - 1}, synchronize_session=False)
 
     @token_required
     def history_detail(self):
