@@ -645,8 +645,8 @@ class CategoryType(Enum):
 
 class ProductStatus(Enum):
     """商品状态"""
-    ready = 0, '未开始'
-    active = 1, '发放中'
+    ready = 0, '即将开始'
+    active = 1, '活动中'
     interrupt = 2, '中止'
     over = 3, '已结束'
 
