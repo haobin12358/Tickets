@@ -540,16 +540,16 @@ class COrder():
         up1_user = User.query.filter(User.isdelete == False, User.USid == up1).first()
         up2_user = User.query.filter(User.isdelete == False, User.USid == up2).first()
         up3_user = User.query.filter(User.isdelete == False, User.USid == up3).first()
-        default_level1commision, default_level2commision, default_level3commision, default_planetcommision = json.loads(
+        level1commision, level2commision, level3commision, planetcommision, deviderate = json.loads(
             commision.Levelcommision
         )
         # 平台让利比
-        deviderate = Decimal(commision.DevideRate) / 100 if commision.DevideRate else 0
+        # deviderate = Decimal(commision.DevideRate) / 100 if commision.DevideRate else 0
 
-        user_level1commision = Decimal(str(default_level1commision)) / 100
-        user_level2commision = Decimal(str(default_level2commision)) / 100
-        user_level3commision = Decimal(str(default_level3commision)) / 100
-        planet_rate = Decimal(str(default_planetcommision)) / 100  # 平台抽成比例
+        user_level1commision = Decimal(str(level1commision)) / 100
+        user_level2commision = Decimal(str(level2commision)) / 100
+        user_level3commision = Decimal(str(level3commision)) / 100
+        planet_rate = Decimal(str(planetcommision)) / 100  # 平台抽成比例
 
         mountprice = Decimal(str(om.OMtrueMount))  # 根据支付实价分佣
         deviderprice = mountprice * deviderate  # 商品供应商佣金
