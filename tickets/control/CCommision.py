@@ -26,8 +26,8 @@ class CCommision:
         reduceratio = data.get('reduceratio')
         increaseratio = data.get('increaseratio')
         deviderate = data.get('deviderate')
-        if not levelcommision or len(levelcommision) != 4:
-            raise ParamsError('请设置四级佣金比')
+        if not levelcommision or len(levelcommision) != 5:
+            raise ParamsError('请设置五级佣金比')
         for comm in levelcommision:
             if comm <= 0 or comm > 100:
                 raise ParamsError('佣金比不合适 需小于100, 大于0')
@@ -55,7 +55,7 @@ class CCommision:
             [setattr(commision, k, v) for k, v in commission_dict.items() if v is not None and v != '[]']
             # if not commision.InviteNum and not commision.PesonalSale and not commision.GroupSale:
             #     raise ParamsError('升级条件不可全为0')
-            usercommision = levelcommision[:-1]
+            usercommision = levelcommision[:-2]
             if sum(usercommision) > 100:
                 raise ParamsError('总佣金比大于100')
             db.session.add(commision)
