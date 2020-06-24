@@ -161,7 +161,7 @@ class COrder():
                 ProductMonthSaleValue.PRid == product.PRid,
                 extract('month', ProductMonthSaleValue.createtime) == today.month,
                 extract('year', ProductMonthSaleValue.createtime) == today.year,
-            ).fitst()
+            ).first()
             if not month_sale_instance:
                 month_sale_instance = ProductMonthSaleValue.create({'PMSVid': str(uuid.uuid1()),
                                                                     'PRid': prid,
@@ -768,7 +768,7 @@ class COrder():
                 ProductMonthSaleValue.PRid == order_main.PRid,
                 extract('month', ProductMonthSaleValue.createtime) == today.month,
                 extract('year', ProductMonthSaleValue.createtime) == today.year,
-            ).fitst()
+            ).first()
             if month_sale_instance:
                 month_sale_instance.update({'PMSVnum': month_sale_instance.PMSVnum - 1})
                 db.session.add(month_sale_instance)

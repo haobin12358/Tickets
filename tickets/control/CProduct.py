@@ -74,7 +74,7 @@ class CProduct(object):
         month_sale_instance = ProductMonthSaleValue.query.filter(ProductMonthSaleValue.isdelete == false(),
                                                                  ProductMonthSaleValue.PRid == prid
                                                                  ).order_by(ProductMonthSaleValue.createtime.desc()
-                                                                            ).first
+                                                                            ).first()
         with db.auto_commit():
             if not month_sale_instance:
                 salevolume_dict = {'PMSVid': str(uuid.uuid1()),
