@@ -8,7 +8,7 @@ from datetime import datetime, date, timedelta
 from decimal import Decimal
 
 from flask import request, current_app
-from sqlalchemy import false, cast, Date, func
+from sqlalchemy import false, cast, Date, func, extract
 
 from tickets.config.enums import PayType, ProductStatus, UserCommissionStatus, ApplyFrom, OrderStatus, WexinBankCode
 from tickets.config.http_config import API_HOST
@@ -22,7 +22,8 @@ from tickets.extensions.success_response import Success
 from tickets.extensions.tasks import add_async_task, auto_cancle_order
 from tickets.extensions.weixin.pay import WeixinPayError
 from tickets.extensions.register_ext import qiniu_oss
-from tickets.models import User, Product, UserWallet, Commision, OrderPay, OrderMain, UserCommission, Supplizer
+from tickets.models import User, Product, UserWallet, Commision, OrderPay, OrderMain, UserCommission, Supplizer, \
+    ProductMonthSaleValue
 
 
 class COrder():
@@ -152,6 +153,26 @@ class COrder():
                 # omdict.setdefault('USCommission3', user.USCommission3)
             om = OrderMain.create(omdict)
             # product.PRnum -= 1  # 商品库存修改 # 0618 fix 非商品逻辑，不能改库存数
+
+            # 月销量 修改或新增
+            today = datetime.now()
+            month_sale_instance = ProductMonthSaleValue.query.filter(
+                ProductMonthSaleValue.isdelete == false(),
+                ProductMonthSaleValue.PRid == product.PRid,
+                extract('month', ProductMonthSaleValue.createtime) == today.month,
+                extract('year', ProductMonthSaleValue.createtime) == today.year,
+            ).fitst()
+            if not month_sale_instance:
+                month_sale_instance = ProductMonthSaleValue.create({'PMSVid': str(uuid.uuid1()),
+                                                                    'PRid': prid,
+                                                                    'PMSVnum': 1,
+                                                                    'PMSVfakenum': 1
+                                                                    })
+            else:
+                month_sale_instance.update({'PMSVnum': ProductMonthSaleValue.PMSVnum + 1,
+                                            'PMSVfakenum': ProductMonthSaleValue.PMSVfakenum + 1})
+            db.session.add(month_sale_instance)
+
             db.session.add(product)
             db.session.add(om)
         body = product.PRname[:16] + '...'
@@ -734,10 +755,23 @@ class COrder():
             db.session.add(order_main)
 
             # 库存修改
-            product = Product.query.filter(Product.PRid == order_main.PRid, Product.isdelete == false()).first()
-            if product:
-                product.PRnum += 1
-                db.session.add(product)
+            # 库存不限量 暂时去除 0624
+            # product = Product.query.filter(Product.PRid == order_main.PRid, Product.isdelete == false()).first()
+            # if product:
+            #     product.PRnum += 1
+            #     db.session.add(product)
+
+            # 扣除月销量
+            today = datetime.now()
+            month_sale_instance = ProductMonthSaleValue.query.filter(
+                ProductMonthSaleValue.isdelete == false(),
+                ProductMonthSaleValue.PRid == order_main.PRid,
+                extract('month', ProductMonthSaleValue.createtime) == today.month,
+                extract('year', ProductMonthSaleValue.createtime) == today.year,
+            ).fitst()
+            if month_sale_instance:
+                month_sale_instance.update({'PMSVnum': month_sale_instance.PMSVnum - 1})
+                db.session.add(month_sale_instance)
 
     @token_required
     def history_detail(self):

@@ -1,4 +1,5 @@
 import json
+import random
 import uuid
 from datetime import datetime
 from flask import request, current_app
@@ -19,7 +20,7 @@ from tickets.extensions.register_ext import db, qiniu_oss
 from tickets.extensions.success_response import Success
 from tickets.extensions.tasks import add_async_task, start_product, end_product, cancel_async_task
 from tickets.models import Supplizer, Product, User, Agreement, OrderMain, UserInvitation, SharingType, ProductVerifier, \
-    ProductVerifiedRecord
+    ProductVerifiedRecord, ProductMonthSaleValue
 
 
 class CProduct(object):
@@ -29,12 +30,15 @@ class CProduct(object):
 
     def list_product(self):
         """商品列表"""
-        # args = request.args.to_dict()
+        args = request.args.to_dict()
         filter_args = []
         if not (is_admin() or is_supplizer()):
             filter_args.append(Product.PRstatus != ProductStatus.interrupt.value)
         if is_supplizer():
             filter_args.append(Product.SUid == getattr(request, 'user').id)
+        prlimited = args.get('prtimelimeted')
+        if str(prlimited) in '01':
+            filter_args.append(Product.PRtimeLimeted == prlimited)
         products = Product.query.filter(Product.isdelete == false(), *filter_args
                                         ).order_by(func.field(Product.PRstatus, ProductStatus.active.value,
                                                               ProductStatus.ready.value, ProductStatus.over.value),
@@ -42,7 +46,8 @@ class CProduct(object):
                                                    Product.createtime.desc()).all_with_page()
         products_fields = ['PRid', 'PRname', 'PRimg', 'PRlinePrice', 'PRtruePrice', 'PRnum', 'PRtimeLimeted',
                            'PRstatus', 'prstatus_zh', 'apply_num', 'PRissueStartTime', 'PRissueEndTime',
-                           'PRuseStartTime', 'PRuseEndTime', 'interrupt']
+                           'PRuseStartTime', 'PRuseEndTime', 'interrupt', 'apply_num_str', 'buyer_avatar',
+                           'start_time_str']
         for product in products:
             self._fill_product(product)
             product.fields = products_fields
@@ -59,7 +64,48 @@ class CProduct(object):
             self._invitation_record(secret_usid, args)
         product = Product.query.filter(Product.isdelete == false(), Product.PRid == prid).first_('商品已下架')
         self._fill_product(product)
+
+        month_sale_value = self._fill_month_sale_value(prid)
+        product.fill('month_sale_value', month_sale_value)
         return Success(data=product)
+
+    @staticmethod
+    def _fill_month_sale_value(prid):
+        month_sale_instance = ProductMonthSaleValue.query.filter(ProductMonthSaleValue.isdelete == false(),
+                                                                 ProductMonthSaleValue.PRid == prid
+                                                                 ).order_by(ProductMonthSaleValue.createtime.desc()
+                                                                            ).first
+        with db.auto_commit():
+            if not month_sale_instance:
+                salevolume_dict = {'PMSVid': str(uuid.uuid1()),
+                                   'PRid': prid,
+                                   'PMSVfakenum': random.randint(15, 100)
+                                   }
+                month_sale_value = salevolume_dict['PMSVfakenum']
+                current_app.logger.info('没有销量记录，现在创建 >>> {}'.format(month_sale_value))
+
+            elif month_sale_instance.createtime.month != datetime.now().month:
+                month_sale_value = getattr(month_sale_instance, 'PMSVnum')
+                month_sale_value = random.randint(15, 100) if month_sale_value < 15 else month_sale_value
+
+                salevolume_dict = {'PMSVid': str(uuid.uuid1()),
+                                   'PRid': prid,
+                                   'PMSVfakenum': month_sale_value
+                                   }
+                current_app.logger.info('没有本月销量记录，现在创建 >>> {}'.format(month_sale_value))
+
+            else:
+                salevolume_dict = None
+                month_sale_value = getattr(month_sale_instance, 'PMSVnum')
+                current_app.logger.info('存在本月销量 {}'.format(month_sale_value))
+                if month_sale_value < 15:
+                    month_sale_value = random.randint(15, 100)
+                    month_sale_instance.update({'PMSVfakenum': month_sale_value})
+                    db.session.add(month_sale_instance)
+                    current_app.logger.info('本月销量更新为 {}'.format(month_sale_value))
+            if salevolume_dict:
+                db.session.add(ProductMonthSaleValue.create(salevolume_dict))
+        return month_sale_value
 
     def _fill_product(self, product):
         product.hide('CreatorId', 'CreatorType')
@@ -86,7 +132,25 @@ class CProduct(object):
         product.fill('interrupt', False if product.PRstatus < ProductStatus.interrupt.value else True)
         product.fill('tirules', self._query_rules(RoleType.ticketrole.value))
         product.fill('scorerule', self._query_rules(RoleType.activationrole.value))
-        product.fill('apply_num', self._query_award_num(product))
+        apply_num = self._query_award_num(product)
+        product.fill('apply_num', apply_num)  # 已申请人数
+
+        # ------ 0624 前台改版后补充字段 ------
+        apply_num_str = f'{round(apply_num / 10000, 1)}w人参与' if apply_num > 10000 else f'{apply_num}人已参与'
+        product.fill('apply_num_str', apply_num_str)
+        buyer_avatar = []
+        if apply_num:
+            buyer_avatar = [i[0] if i[0].startswith('http') else API_HOST + i[0]
+                            for i in db.session.query(User.USheader
+                                                      ).filter(OrderMain.OMstatus >= OrderStatus.pending.value,
+                                                               OrderMain.PRid == product.PRid,
+                                                               OrderMain.USid == User.USid).limit(2).all()]
+        product.fill('buyer_avatar', buyer_avatar)
+        start_time_str = product.PRissueStartTime.strftime(
+            '%m月%d日%H:%M') if product.PRtimeLimeted and product.PRstatus == ProductStatus.ready.value else ''
+        product.fill('start_time_str', start_time_str)
+        # -----------------------------------
+
         # show_record = True if product.PRstatus == ProductStatus.over.value else False
         # product.fill('show_record', show_record)  # 0618 fix 目前无需"动态"区域出现
         verified = True if is_user() and User.query.filter(User.isdelete == false(),
