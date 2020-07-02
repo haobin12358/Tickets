@@ -17,8 +17,9 @@ class Product(Base):
     PRuseStartTime = Column(DateTime, comment='有效使用期开始时间')
     PRuseEndTime = Column(DateTime, comment='有效使用期结束时间')
     PRdetails = Column(Text, comment='商品详情')
-    PRlinePrice = Column(DECIMAL(precision=28, scale=2), comment='划线价格')
-    PRtruePrice = Column(DECIMAL(precision=28, scale=2), comment='实际价格')
+    PRlinePrice = Column(DECIMAL(precision=28, scale=2), default=0, comment='划线价格')
+    PRtruePrice = Column(DECIMAL(precision=28, scale=2), default=0, comment='实际价格')
+    PurchasePrice = Column(DECIMAL(precision=28, scale=2), default=0, comment='采购价')  # 0702增加
     PRstatus = Column(Integer, default=0, comment='抢票状态 0: 未开始, 1: 发放中, 2: 中止 , 3: 已结束')
     PRnum = Column(Integer, default=1, comment='数量')
     PRbanner = Column(Text, url_list=True, comment='轮播图片')
