@@ -58,6 +58,8 @@ class CSupplizer:
             filter_args.add(Supplizer.SUname.contains(kw))
         if mobile:
             filter_args.add(Supplizer.SUlinkPhone.contains(mobile))
+        if is_supplizer():
+            filter_args.add(Supplizer.SUid == getattr(request, 'user').id)
         supplizers = Supplizer.query.filter(*filter_args).order_by(Supplizer.createtime.desc()).all_with_page()
 
         for supplizer in supplizers:
