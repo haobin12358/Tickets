@@ -569,8 +569,8 @@ class CUser(object):
         if cncashnum > float(balance):
             current_app.logger.info('提现金额为 {0}  实际余额为 {1}'.format(cncashnum, balance))
             raise ParamsError('提现金额超出余额')
-        elif not (0.30 <= cncashnum <= 5000):
-            raise ParamsError('单次可提现范围(0.30 ~ 5000元)')
+        elif not (100 <= cncashnum <= 5000):
+            raise ParamsError('单次可提现范围(100 ~ 5000元)')
 
         uw.UWcash = Decimal(str(uw.UWcash)) - Decimal(cncashnum)
         kw = {}
