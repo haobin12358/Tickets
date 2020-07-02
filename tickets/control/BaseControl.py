@@ -82,6 +82,13 @@ class BaseApproval:
 
     def create_approval(self, avtype, startid, avcontentid, applyfrom=None, **kwargs):
 
+        """
+        avtype:审批流类型id
+        startid: 发起人id
+        avcontentid: 待审批的对象
+
+        """
+
         current_app.logger.info('start create approval ptid = {0}'.format(avtype))
         pt = PermissionType.query.filter_by_(PTid=avtype).first_('参数异常')
 
@@ -101,6 +108,7 @@ class BaseApproval:
 
         with db.auto_commit():
 
+            # 处理人姓名逻辑处理
             if applyfrom == ApplyFrom.supplizer.value:
                 sup = Supplizer.query.filter_by_(SUid=startid).first()
                 name = getattr(sup, 'SUname', '')
@@ -111,6 +119,7 @@ class BaseApproval:
                 user = User.query.filter_by_(USid=startid).first()
                 name = getattr(user, 'USname', '')
 
+            # 创建审批流处理（此时为待处理）记录
             aninstance = ApprovalNotes.create({
                 "ANid": str(uuid.uuid1()),
                 "AVid": av.AVid,
@@ -145,8 +154,13 @@ class BaseApproval:
             return self.__fill_cash(start, content, **kwargs)
         elif pt.PTid == 'toshelves':
             return self.__fill_shelves(start, content)
+        elif pt.PTid == 'touplevel':
+            return self.__filluplevel()
         else:
             raise ParamsError('参数异常， 请检查审批类型是否被删除。如果新增了审批类型，请联系开发实现后续逻辑')
+
+    def __filluplevel(self):
+        return "", ""
 
     def __fill_cash(self, startid, contentid, **kwargs):
         # 填充提现内容
