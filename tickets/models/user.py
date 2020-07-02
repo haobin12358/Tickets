@@ -28,6 +28,7 @@ class User(Base):
     USsupper1 = Column(String(64), comment='一级代理商id')
     USsupper2 = Column(String(64), comment='二级代理商id')
     USsupper3 = Column(String(64), comment='三级代理商id')
+    USsuperlevel = Column(Integer, default=0, comment='分佣等级')
     USCommission1 = Column(DECIMAL(scale=2), comment='当用户作为一级时, 佣金分成')  # 一级佣金分成比例
     USCommission2 = Column(DECIMAL(scale=2), comment='佣金分成')  # 二级佣金分成比例
     USCommission3 = Column(DECIMAL(scale=2), comment='佣金分成')  # 三级佣金分成比例
@@ -307,3 +308,20 @@ class SupplizerAccount(Base):
     SAICIDcode = Column(Text, comment='纳税识别码')
     SAaddress = Column(Text, comment='地址电话')
     SAbankAccount = Column(Text, comment='开票信息的银行账户')
+
+
+class UserDistribute(Base):
+    """用户归属分配"""
+    __tablename__ = 'UserDistribute'
+    UDid = Column(String(64), primary_key=True)
+    UDinputer = Column(String(64), comment='操作人')
+    UDinperson = Column(String(64), comment='被执行人')
+    UDexecutor = Column(String(64), comment='管理者')
+
+class UserSubCommission(Base):
+    """用户分佣等级"""
+    __tablename__ = 'UserSubCommission'
+    USCid = Column(String(64), primary_key=True)
+    USCsupper1 = Column(String(64), comment='一级分佣人员')
+    USCsupper2 = Column(String(64), comment='二级分佣人员')
+    USCsupper3 = Column(String(64), comment='三级分佣人员')
