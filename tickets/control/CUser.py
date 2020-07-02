@@ -29,7 +29,7 @@ from tickets.extensions.weixin import WeixinLogin
 from tickets.extensions.weixin.mp import WeixinMPError
 from tickets.models import User, SharingParameters, UserLoginTime, UserWallet, ProductVerifier, AddressProvince, \
     AddressArea, AddressCity, IDCheck, UserMedia, UserInvitation, Admin, AdminNotes, UserAccessApi, UserCommission, \
-    Supplizer, CashNotes, OrderMain, SupplizerAccount
+    Supplizer, CashNotes, OrderMain, SupplizerAccount, UserSubCommission
 
 
 class CUser(object):
@@ -404,6 +404,10 @@ class CUser(object):
         user.USgender -= 1 if user.USgender > 0 else 1  # 仅是为了小程序端图标不修改，存储数据不变
         user.fill('usbirthday', str(user.USbirthday)[:10] if user.USbirthday else '')
         user.fill('usminilevel', MiniUserGrade(user.USminiLevel).zh_value)
+        usersubcommission = UserSubCommission.query.filter(UserSubCommission.USid == getattr(request, 'user').id,
+                                                           UserSubCommission.isdelete == false())\
+            .first()
+        user.fill('ussuperlevel', usersubcommission.USCsuperlevel)
         self.__user_fill_uw_total(user)
         user.fill('verified', bool(user.USidentification))  # 是否信用认证
         if not user.USwxacode:

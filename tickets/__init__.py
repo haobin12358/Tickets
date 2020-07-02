@@ -3,7 +3,8 @@ from flask import Flask
 from flask import Blueprint
 from flask_cors import CORS
 
-from .api import AHello, AFile, AUser, ACommission, AOrder, AProduct, AActivation, AIndex, AAddress, AOthers, AApproval
+from .api import AHello, AFile, AUser, ACommission, AOrder, AProduct, AActivation, AIndex, AAddress, AOthers, \
+    AApproval, ASubcommision
 from .api.ASupplizer import ASupplizer
 
 from .extensions.request_handler import error_handler, request_first_handler
@@ -27,6 +28,7 @@ def register(app):
     bp.add_url_rule('/activation/<string:activation>', view_func=AActivation.as_view('activation'))  # 活跃度
     bp.add_url_rule('/approval/<string:approval>', view_func=AApproval.as_view('approval'))
     bp.add_url_rule('/others/<string:string>', view_func=AOthers.as_view('others'))
+    bp.add_url_rule('/subcommision/<string:subcommision>', view_func=ASubcommision.as_view('subcommision'))
     app.register_blueprint(bp)
 
 
