@@ -115,7 +115,7 @@ def end_product(prid):
     except Exception as e:
         current_app.logger.error("该票修改为结束时出错 : {} <<<".format(e))
     finally:
-        current_app.logger.info('修改抢票为结束任务完成 tiid {}'.format(prid))
+        current_app.logger.info('修改抢票为结束任务完成 prid {}'.format(prid))
 
 # if __name__ == '__main__':
 #     from tickets import create_app

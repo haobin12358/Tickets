@@ -4,15 +4,17 @@ from decimal import Decimal
 
 from flask import current_app, request
 
-from tickets.config.enums import ApplyStatus, ApprovalAction, AdminActionS, ApplyFrom, WXLoginFrom, CashFor
+from tickets.config.enums import ApplyStatus, ApprovalAction, AdminActionS, ApplyFrom, WXLoginFrom, CashFor, \
+    ProductStatus
 from tickets.control.BaseControl import BaseApproval, BaseAdmin
 from tickets.extensions.error_response import NotFound, AuthorityError, ParamsError, SystemError
 from tickets.extensions.interface.user_interface import token_required, is_admin, is_supplizer
-from tickets.extensions.params_validates import parameter_required
+from tickets.extensions.params_validates import parameter_required, validate_price
 from tickets.extensions.register_ext import db
 from tickets.extensions.success_response import Success
+from tickets.extensions.tasks import add_async_task, start_product, end_product
 from tickets.models import Admin, Approval, Permission, AdminPermission, Supplizer, PermissionType, ApprovalNotes, \
-    CashNotes, UserWallet, CashFlow
+    CashNotes, UserWallet, CashFlow, Product
 
 
 class CApproval(BaseApproval):
@@ -197,17 +199,20 @@ class CApproval(BaseApproval):
             else:
                 # 没有下一级审批人了
                 approval_model.AVstatus = ApplyStatus.agree.value
-                self.agree_action(approval_model)
+                self.agree_action(approval_model, data)
         else:
             # 审批操作为拒绝
             approval_model.AVstatus = ApplyStatus.reject.value
             self.refuse_action(approval_model, data.get('anabo'))
 
-    def agree_action(self, approval_model):
+    def agree_action(self, approval_model, data):
         if not approval_model:
             return
         if approval_model.PTid == 'tocash':
             self.agree_cash(approval_model)
+        elif approval_model.PTid == 'toshelves':
+            self.agree_shelves(approval_model, data)
+
         else:
             return ParamsError('参数异常，请检查审批类型是否被删除。如果新增了审批类型，请联系开发实现后续逻辑')
 
@@ -216,6 +221,8 @@ class CApproval(BaseApproval):
             return
         if approval_model.PTid == 'tocash':
             self.refuse_cash(approval_model, refuse_abo)
+        elif approval_model.PTid == 'toshelves':
+            self.refuse_shelves(approval_model, refuse_abo)
         else:
             return ParamsError('参数异常，请检查审批类型是否被删除。如果新增了审批类型，请联系开发实现后续逻辑')
 
@@ -258,3 +265,39 @@ class CApproval(BaseApproval):
         uw = UserWallet.query.filter_by_(USid=cn.USid).first_("提现审批异常数据")
         # 拒绝提现时，回退申请的钱到可提现余额里
         uw.UWcash = Decimal(str(uw.UWcash)) + Decimal(str(cn.CNcashNum))
+
+    def agree_shelves(self, approval_model, data):
+        parameter_required({'prlineprice': '划线价格', 'prtrueprice': '实际价格'}, datafrom=data)
+        product = Product.query.filter_by_(
+            PRid=approval_model.AVcontent,
+            PRstatus=ProductStatus.pending.value
+        ).first_('商品已处理')
+        prlineprice = validate_price(data.get('prlineprice'), can_zero=False)
+        prtrueprice = validate_price(data.get('prtrueprice'), can_zero=True if product.PRtimeLimeted else False)
+        current_app.logger.info(f'划线价, 实际价 = {prlineprice}, {prtrueprice}')
+        from datetime import datetime
+        now = datetime.now()
+        if product.PRtimeLimeted:
+            if product.PRissueStartTime > now:  # 同意时未到发放开始时间
+                product.PRstatus = ProductStatus.ready.value  # 状态为 未开始
+                add_async_task(func=start_product, start_time=product.PRissueStartTime, func_args=(product.PRid,),
+                               conn_id='start_product{}'.format(product.PRid))
+                add_async_task(func=end_product, start_time=product.PRissueEndTime, func_args=(product.PRid,),
+                               conn_id='end_product{}'.format(product.PRid))
+            elif product.PRissueStartTime <= now < product.PRissueEndTime:  # 已到开始发放时间 未到 结束时间
+                product.PRstatus = ProductStatus.active.value  # 状态为 活动中
+                add_async_task(func=end_product, start_time=product.PRissueEndTime, func_args=(product.PRid,),
+                               conn_id='end_product{}'.format(product.PRid))
+            else:
+                raise ParamsError('当前时间已超出商品发放时间范围，请联系供应商重新提交申请')
+
+        else:
+            product.PRstatus = ProductStatus.active.value
+        product.PRlinePrice = prlineprice
+        product.PRtruePrice = prtrueprice
+
+    def refuse_shelves(self, approval_model, refuse_abo):
+        product = Product.query.filter_by_(PRid=approval_model.AVcontent).first()
+        if not product:
+            return
+        product.PRstatus = ProductStatus.reject.value

@@ -7,9 +7,9 @@ from sqlalchemy import false, func, cast, Date
 
 from tickets.common.playpicture import PlayPicture
 from tickets.config.enums import UserStatus, ProductStatus, ShareType, RoleType, OrderStatus, PayType, \
-    ActivationTypeEnum, AdminActionS
+    ActivationTypeEnum, AdminActionS, ProductFrom, ApplyStatus
 from tickets.config.http_config import API_HOST
-from tickets.control.BaseControl import BaseAdmin
+from tickets.control.BaseControl import BaseAdmin, BaseApproval
 from tickets.control.CActivation import CActivation
 from tickets.control.CUser import CUser
 from tickets.extensions.error_response import ParamsError, AuthorityError, StatusError
@@ -20,13 +20,14 @@ from tickets.extensions.register_ext import db, qiniu_oss
 from tickets.extensions.success_response import Success
 from tickets.extensions.tasks import add_async_task, start_product, end_product, cancel_async_task
 from tickets.models import Supplizer, Product, User, Agreement, OrderMain, UserInvitation, SharingType, ProductVerifier, \
-    ProductVerifiedRecord, ProductMonthSaleValue
+    ProductVerifiedRecord, ProductMonthSaleValue, Approval
 
 
 class CProduct(object):
     cuser = CUser()
     cactivation = CActivation()
     base_admin = BaseAdmin()
+    base_approval = BaseApproval()
 
     def list_product(self):
         """商品列表"""
@@ -265,7 +266,11 @@ class CProduct(object):
     @token_required
     def create_product(self):
         """创建商品"""
-        if not (is_admin or is_supplizer):
+        if is_admin():
+            product_from = ProductFrom.platform.value
+        elif is_supplizer():
+            product_from = ProductFrom.supplizer.value
+        else:
             raise AuthorityError('当前用户无权进行该操作')
         data = request.json
         product_dict = self._validate_ticket_param(data)
@@ -278,23 +283,30 @@ class CProduct(object):
                                  'PRname': data.get('prname'),
                                  'PRimg': data.get('primg'),
                                  'PRdetails': data.get('prdetails'),
-                                 'PRstatus': ProductStatus.ready.value if product_dict.get(
-                                     'PRtimeLimeted') else ProductStatus.active.value
+                                 # 'PRstatus': ProductStatus.ready.value if product_dict.get(
+                                 #     'PRtimeLimeted') else ProductStatus.active.value,
+                                 'PRstatus': ProductStatus.pending.value
                                  })
             product = Product.create(product_dict)
             db.session.add(product)
-        if product.PRtimeLimeted:  # 限时商品，添加异步任务
-            add_async_task(func=start_product, start_time=product.PRissueStartTime, func_args=(product.PRid,),
-                           conn_id='start_product{}'.format(product.PRid))
-            add_async_task(func=end_product, start_time=product.PRissueEndTime, func_args=(product.PRid,),
-                           conn_id='end_product{}'.format(product.PRid))
+        # 0702 增加审批
+        # if product.PRtimeLimeted:  # 限时商品，添加异步任务
+        #     add_async_task(func=start_product, start_time=product.PRissueStartTime, func_args=(product.PRid,),
+        #                    conn_id='start_product{}'.format(product.PRid))
+        #     add_async_task(func=end_product, start_time=product.PRissueEndTime, func_args=(product.PRid,),
+        #                    conn_id='end_product{}'.format(product.PRid))
+        self.base_approval.create_approval('toshelves', request.user.id, product.PRid, product_from)
         self.base_admin.create_action(AdminActionS.insert.value, 'Product', product.PRid)
         return Success('创建成功', data={'prid': product.PRid})
 
     @token_required
     def update_product(self):
         """编辑商品"""
-        if not (is_admin or is_supplizer):
+        if is_admin():
+            product_from = ProductFrom.platform.value
+        elif is_supplizer():
+            product_from = ProductFrom.supplizer.value
+        else:
             raise AuthorityError('当前用户无权进行该操作')
         data = parameter_required('prid')
         product = Product.query.filter(Product.isdelete == false(),
@@ -302,6 +314,7 @@ class CProduct(object):
         if Product.query.filter(Product.isdelete == false(), Product.PRname == data.get('prname'),
                                 Product.PRid != Product.PRid, Product.PRstatus != ProductStatus.over.value).first():
             raise ParamsError('该商品名已存在')
+        approval_flag = 0
         with db.auto_commit():
             if data.get('delete'):
                 if product.PRstatus == ProductStatus.active.value:
@@ -315,6 +328,8 @@ class CProduct(object):
                 cancel_async_task('start_product{}'.format(product.PRid))
                 cancel_async_task('end_product{}'.format(product.PRid))
                 self.base_admin.create_action(AdminActionS.delete.value, 'Product', product.PRid)
+                # 同时将正在进行的审批流改为取消
+                self.base_approval.cancel_approval(product.PRid, request.user.id)
             elif data.get('interrupt'):
                 if product.PRstatus > ProductStatus.active.value:
                     raise StatusError('该状态下无法中止')
@@ -322,16 +337,21 @@ class CProduct(object):
                 cancel_async_task('start_product{}'.format(product.PRid))
                 cancel_async_task('end_product{}'.format(product.PRid))
                 self.base_admin.create_action(AdminActionS.update.value, 'Product', product.PRid)
+                # 同时将正在进行的审批流改为取消
+                self.base_approval.cancel_approval(product.PRid, request.user.id)
             else:
+                approval_flag = 1
                 if product.PRstatus < ProductStatus.interrupt.value:
                     raise ParamsError('仅可编辑已中止发放或已结束的商品')
                 product_dict = self._validate_ticket_param(data)
                 product_dict.update({'PRname': data.get('prname'),
                                      'PRimg': data.get('primg'),
                                      'PRdetails': data.get('prdetails'),
-                                     'PRstatus': ProductStatus.ready.value if product_dict.get(
-                                         'PRtimeLimeted') else ProductStatus.active.value
+                                     # 'PRstatus': ProductStatus.ready.value if product_dict.get(
+                                     #     'PRtimeLimeted') else ProductStatus.active.value,
+                                     'PRstatus': ProductStatus.pending.value
                                      })
+                self.base_approval.cancel_approval(product.PRid, request.user.id)  # 同时将正在进行的审批流改为取消
                 if product.PRstatus == ProductStatus.interrupt.value:  # 中止的情况
                     current_app.logger.info('edit interrupt ticket')
                     product.update(product_dict, null='not')
@@ -343,17 +363,15 @@ class CProduct(object):
                     product = Product.create(product_dict)
                 cancel_async_task('start_product{}'.format(product.PRid))
                 cancel_async_task('end_product{}'.format(product.PRid))
-                if product.PRtimeLimeted:  # 限时商品，添加异步任务
-                    add_async_task(func=start_product, start_time=product.PRissueStartTime, func_args=(product.PRid,),
-                                   conn_id='start_product{}'.format(product.PRid))
-                    add_async_task(func=end_product, start_time=product.PRissueEndTime, func_args=(product.PRid,),
-                                   conn_id='end_product{}'.format(product.PRid))
+
                 self.base_admin.create_action(AdminActionS.insert.value, 'Product', product.PRid)
             db.session.add(product)
+        if approval_flag:
+            self.base_approval.create_approval('toshelves', request.user.id, product.PRid, product_from)
         return Success('编辑成功', data={'prid': product.PRid})
 
     def _validate_ticket_param(self, data):
-        valid_dict = {'prname': '商品名称', 'primg': '封面图', 'prlineprice': '原价', 'prtrueprice': '现价',
+        valid_dict = {'prname': '商品名称', 'primg': '封面图', 'purchaseprice': '采购价',
                       'suid': '供应商', 'prtimelimeted': '是否为限时商品',
                       'prnum': '数量', 'prdetails': '详情', 'prbanner': '轮播图', 'address': '定位地点'
                       }
@@ -391,8 +409,9 @@ class CProduct(object):
             if pruseendtime <= prusestarttime:
                 raise ParamsError('使用结束时间应大于开始时间')
 
-        prlineprice, prtrueprice = map(lambda x: validate_price(x, can_zero=False),
-                                       (data.get('prlineprice'), data.get('prtrueprice')))
+        # prlineprice, prtrueprice = map(lambda x: validate_price(x, can_zero=False),  # 0702 改为采购价
+        #                                (data.get('prlineprice'), data.get('prtrueprice')))
+        purchaseprice = validate_price(data.get('purchaseprice'), can_zero=False)
         latitude, longitude = self.check_lat_and_long(data.get('latitude'), data.get('longitude'))
         prnum = data.get('prnum') if prtimelimeted else 99999999
         if not isinstance(prnum, int) or int(prnum) <= 0:
@@ -408,8 +427,8 @@ class CProduct(object):
                         'PRuseStartTime': prusestarttime,
                         'PRuseEndTime': pruseendtime,
                         'PRtimeLimeted': prtimelimeted,
-                        'PRlinePrice': prlineprice,
-                        'PRtruePrice': prtrueprice,
+                        'PurchasePrice': purchaseprice,
+                        # 'PRtruePrice': prtrueprice,
                         'PRnum': prnum,
                         'PRbanner': prbanner,
                         'SUid': sup.SUid,

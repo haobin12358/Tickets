@@ -9,7 +9,7 @@ from tickets.config.enums import ApplyStatus, ApplyFrom, ApprovalAction
 from tickets.extensions.error_response import StatusError, ParamsError
 from tickets.extensions.register_ext import mp_miniprogram, db
 from tickets.extensions.weixin.mp import WeixinMPError
-from tickets.models import AdminActions, Supplizer, Admin, User, CashNotes, UserWallet
+from tickets.models import AdminActions, Supplizer, Admin, User, CashNotes, UserWallet, Product
 from tickets.models.approval import Approval, ApprovalNotes, PermissionType
 
 
@@ -124,6 +124,15 @@ class BaseApproval:
             db.session.add(aninstance)
         return av.AVid
 
+    @staticmethod
+    def cancel_approval(content_id, start_id):
+        approval_info = Approval.query.filter_by_(AVcontent=content_id, AVstartid=start_id,
+                                                  AVstatus=ApplyStatus.wait_check.value).first()
+        if approval_info:
+            current_app.logger.info(f'exist apprival, avid: {approval_info.AVid}')
+            approval_info.AVstatus = ApplyStatus.cancle.value
+            db.session.add(approval_info)
+
     def __get_approvalcontent(self, pt, startid, avcontentid, **kwargs):
         start, content = self.__fill_approval(pt, startid, avcontentid, **kwargs)
         current_app.logger.info('get start {0} content {1}'.format(start, content))
@@ -134,6 +143,8 @@ class BaseApproval:
     def __fill_approval(self, pt, start, content, **kwargs):
         if pt.PTid == 'tocash':
             return self.__fill_cash(start, content, **kwargs)
+        elif pt.PTid == 'toshelves':
+            return self.__fill_shelves(start, content)
         else:
             raise ParamsError('参数异常， 请检查审批类型是否被删除。如果新增了审批类型，请联系开发实现后续逻辑')
 
@@ -159,4 +170,20 @@ class BaseApproval:
         for key in kwargs:
             content.fill(key, kwargs.get(key))
 
+        return start_model, content
+
+    def __fill_shelves(self, startid, contentid):
+        # 填充上架申请
+        current_app.logger.info(f'{startid}, {contentid}')
+        start_model = Supplizer.query.filter_by_(SUid=startid).first() or \
+                      Admin.query.filter_by_(ADid=startid).first()
+
+        content = Product.query.filter_by_(PRid=contentid).first()
+        if not start_model or not content:
+            return None, None
+        su = Supplizer.query.filter(Supplizer.SUid == content.SUid).first()
+        images = [{'pipic': i} for i in json.loads(content.PRbanner)]
+        content.fill('images', images)
+        content.fill('prmainpic', content.PRimg)
+        content.fill('suname', su.SUname if su else '')
         return start_model, content
