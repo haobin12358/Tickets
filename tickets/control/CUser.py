@@ -45,6 +45,9 @@ class CUser(object):
         return plain_text
 
     def mini_program_login(self):
+        # TODO 检索上级分销人员，如果上级分销人员为0级，update为1级
+        # TODO 触发佣金表录入数据
+        # TODO 检索1级分佣人员，如果达到标准，触发升二级审批流
         args = request.json
         code = args.get("code")
         info = args.get("info")
@@ -832,6 +835,9 @@ class CUser(object):
             user.fields = ['USid', 'USname', 'USheader', 'USCommission1',
                            'USCommission2', 'USCommission3', 'USlevel']
             usid = user.USid
+            user_subcommision = UserSubCommission.query.filter(UserSubCommission.USid == usid,
+                                                               UserSubCommission.isdelete == 0).first()
+            user.fill('uscsuperlevel', user_subcommision.USCsuperlevel)
             user.fill('ustelphone', user.UStelephone)
             wallet = UserWallet.query.filter(
                 UserWallet.isdelete == False,
