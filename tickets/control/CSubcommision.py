@@ -198,13 +198,13 @@ class CSubcommision():
                                                             UserSubCommission.USCsuperlevel == 1,
                                                             UserSubCommission.USCsupper2 == user.USid)\
                     .all()
-                user.fill("team_num", len(super_team))
+                user.fill("team_number", len(super_team))
             elif super_level == 1:
                 super_team = UserSubCommission.query.filter(UserSubCommission.isdelete == 0,
                                                             UserSubCommission.USCsuperlevel == 0,
                                                             UserSubCommission.USCsupper1 == user.USid) \
                     .all()
-                user.fill("team_num", len(super_team))
+                user.fill("team_number", len(super_team))
             elif super_level == 0:
                 # TODO 总订单数
                 order_list = OrderMain.query.filter(OrderMain.USid == user.USid,
@@ -384,10 +384,27 @@ class CSubcommision():
         """
         审批升级情况
         """
-        # TODO 天亮以后再继续
+        # TODO 查看分配列表，有，清理该数据且update分佣表，无pass
+        # TODO 查看分佣表，一级分佣位置为该用户的数据update
+        # TODO 检测刚才待update数据，二级分佣位置为空pass，二级分佣位置存在数据且分配列表无数据pass，二级分佣位置存在数据且分配列表有数据delete
+        # TODO 二级升三级同处理
         return Success(message="审批成功")
 
+    def set_user_level(self):
+        """
+        设置用户等级
+        0->3
+        1->3
+        2->3
+        0->2
+        0->1
+        1->2
+        1->0
+        2->1
+        2->0
+        3->2
+        3->1
+        3->0
+        """
 
-    # TODO 升级-定时任务
     # TODO 降级-定时任务
-    # TODO 奖励-定时任务
