@@ -40,7 +40,7 @@ class CUser(object):
 
     def __init__(self):
         from tickets.control.CSubcommision import CSubcommision
-        self.subcommision = CSubcommision
+        self.subcommision = CSubcommision()
 
     @staticmethod
     def _decrypt_encrypted_user_data(encrypteddata, session_key, iv):
@@ -115,6 +115,7 @@ class CUser(object):
                             'USgender': sex,
                             'USunionid': unionid
                             }
+        user_dict = {}
         with db.auto_commit():
             isnewguy = ActivationTypeEnum.share_old.value
             if user:
@@ -143,10 +144,14 @@ class CUser(object):
                     user_dict.setdefault('USsupper2', upperd.USsupper1)
                     user_dict.setdefault('USsupper3', upperd.USsupper2)
                 user = User.create(user_dict)
-                # 创建分佣表，更新一级分佣者状态
-                self.subcommision._mock_first_login(usid)
             db.session.add(user)
             db.session.flush()
+            # 创建分佣表，更新一级分佣者状态
+            if user_dict:
+                current_app.logger.info('get user dict: {0}'.format(str(user_dict)))
+                self.subcommision._mock_first_login(user_dict["USid"])
+            else:
+                pass
             if upperd:
                 today = datetime.now().date()
                 uin_exist = UserInvitation.query.filter(

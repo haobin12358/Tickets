@@ -39,6 +39,8 @@ class CSubcommision():
         3.调用本方法获得分佣各级对应人员
         """
         user_sub_commision = {
+            "USCid": str(uuid.uuid1()),
+            "USid": usid,
             "USCsuperlevel": 0,
             "USCsupper1": None,
             "USCsupper2": None,
@@ -50,7 +52,8 @@ class CSubcommision():
             supper = user.USsupper1
             if not supper:
                 # 无分销者，野人模式
-                db.session.add(user_sub_commision)
+                user_sub_commision_instance = UserSubCommission.create(user_sub_commision)
+                db.session.add(user_sub_commision_instance)
                 db.session.flush()
             else:
                 # 上级分销人员
@@ -62,7 +65,7 @@ class CSubcommision():
                     supper2 = supper_user.USsupper1
                     if not supper2:
                         # 无上级分销者
-                        return user_sub_commision
+                        pass
                     else:
                         # 循环寻找二级分佣人员
                         while supper_user.USsuperlevel == 2 or not supper2:
@@ -73,7 +76,7 @@ class CSubcommision():
 
                         # 判断二级分佣人员是否存在
                         if not user_sub_commision["USCsupper2"]:
-                            return user_sub_commision
+                            pass
                         else:
                             supper3 = supper_user.USsupper1
                             # 循环寻找三级分佣人员
@@ -87,7 +90,7 @@ class CSubcommision():
                     supper3 = supper_user.USsupper1
                     if not supper3:
                         # 无上级分销者
-                        return user_sub_commision
+                        pass
                     else:
                         # 循环寻找三级分佣人员
                         while supper_user.USsuperlevel == 3 or not supper3:
