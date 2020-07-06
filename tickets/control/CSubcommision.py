@@ -364,14 +364,14 @@ class CSubcommision():
                                              Approval.PTid == 'touplevel')\
                 .all_with_page()
         elif is_admin():
-            data = parameter_required(('avstatus'))
+            data = parameter_required()
             filter_args = [Approval.isdelete == 0, Approval.PTid == 'touplevel']
-            if data.get("avstatus") == 'all':
-                pass
-            else:
-                data_avstatus = getattr(ApplyStatus, data.get('avstatus'), None)
-                avstatus = data_avstatus.value
-                filter_args.append(Approval.AVstatus == avstatus)
+            avstatus = data.get('avstatus')
+            if avstatus and avstatus != 'all':
+                try:
+                    filter_args.append(Approval.AVstatus == getattr(ApplyStatus, avstatus).value)
+                except (AttributeError, ValueError):
+                    pass
             approval_list = Approval.query.filter(*filter_args) \
                 .all_with_page()
         else:
