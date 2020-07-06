@@ -16,12 +16,13 @@ from tickets.config.enums import MiniUserGrade, ApplyFrom, ActivationTypeEnum, U
     UserCommissionStatus, WXLoginFrom, BankName, WexinBankCode
 from tickets.config.secret import MiniProgramAppId, MiniProgramAppSecret
 from tickets.control.BaseControl import BaseController, BaseAdmin, BaseApproval
+from tickets.control.CFile import CFile
 from tickets.extensions.error_response import ParamsError, TokenError, WXLoginError, NotFound, \
     InsufficientConditionsError, AuthorityError, StatusError
 from tickets.extensions.interface.user_interface import token_required, phone_required, is_admin, is_supplizer, is_user, \
     get_current_admin, admin_required
 from tickets.extensions.params_validates import parameter_required, validate_arg
-from tickets.extensions.register_ext import db, mp_miniprogram, qiniu_oss
+from tickets.extensions.register_ext import db, mp_miniprogram
 from tickets.extensions.request_handler import _get_user_agent
 from tickets.extensions.success_response import Success
 from tickets.extensions.token_handler import usid_to_token
@@ -35,6 +36,7 @@ from tickets.models import User, SharingParameters, UserLoginTime, UserWallet, P
 class CUser(object):
     base_admin = BaseAdmin()
     base_approval = BaseApproval()
+    c_file = CFile()
 
     @staticmethod
     def _decrypt_encrypted_user_data(encrypteddata, session_key, iv):
@@ -231,12 +233,8 @@ class CUser(object):
         with open(filename, 'wb') as head:
             head.write(data.content)
 
-        # 头像上传到七牛云
-        if current_app.config.get('IMG_TO_OSS'):
-            try:
-                qiniu_oss.save(data=filename, filename=filedbname[1:])
-            except Exception as e:
-                current_app.logger.error('头像转存七牛云出错 : {}'.format(e))
+        # 头像上传到oss
+        self.c_file.upload_to_oss(filename, filedbname[1:], '用户头像')
         return filedbname
 
     def _get_path(self, fold):
@@ -325,12 +323,8 @@ class CUser(object):
             current_app.logger.error('生成个人小程序码失败：{}'.format(e))
             filedbname = None
 
-        # 二维码上传到七牛云
-        if current_app.config.get('IMG_TO_OSS'):
-            try:
-                qiniu_oss.save(data=filename, filename=filedbname[1:])
-            except Exception as e:
-                current_app.logger.error('个人小程序码转存七牛云失败 ： {}'.format(e))
+        # 二维码上传到oss
+        self.c_file.upload_to_oss(filename, filedbname[1:], '个人小程序二维码')
         return filedbname
 
     @staticmethod
@@ -405,7 +399,7 @@ class CUser(object):
         user.fill('usbirthday', str(user.USbirthday)[:10] if user.USbirthday else '')
         user.fill('usminilevel', MiniUserGrade(user.USminiLevel).zh_value)
         usersubcommission = UserSubCommission.query.filter(UserSubCommission.USid == getattr(request, 'user').id,
-                                                           UserSubCommission.isdelete == false())\
+                                                           UserSubCommission.isdelete == false()) \
             .first()
         user.fill('ussuperlevel', usersubcommission.USCsuperlevel)
         self.__user_fill_uw_total(user)

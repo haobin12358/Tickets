@@ -13,6 +13,7 @@ from sqlalchemy import false, cast, Date, func, extract
 from tickets.config.enums import PayType, ProductStatus, UserCommissionStatus, ApplyFrom, OrderStatus, WexinBankCode
 from tickets.config.http_config import API_HOST
 from tickets.config.timeformat import format_for_web_second, format_forweb_no_HMS
+from tickets.control.CFile import CFile
 from tickets.extensions.error_response import ParamsError, StatusError, AuthorityError
 from tickets.extensions.interface.user_interface import is_user, is_admin, token_required, phone_required, is_supplizer
 from tickets.extensions.make_qrcode import qrcodeWithtext
@@ -21,7 +22,6 @@ from tickets.extensions.register_ext import db, mini_wx_pay
 from tickets.extensions.success_response import Success
 from tickets.extensions.tasks import add_async_task, auto_cancle_order
 from tickets.extensions.weixin.pay import WeixinPayError
-from tickets.extensions.register_ext import qiniu_oss
 from tickets.models import User, Product, UserWallet, Commision, OrderPay, OrderMain, UserCommission, Supplizer, \
     ProductMonthSaleValue
 
@@ -710,12 +710,8 @@ class COrder():
         current_app.logger.info('get text content {0}'.format(text))
         qrcodeWithtext(text, filename)
 
-        # 二维码上传到七牛云
-        if current_app.config.get('IMG_TO_OSS'):
-            try:
-                qiniu_oss.save(data=filename, filename=filedbname[1:])
-            except Exception as e:
-                current_app.logger.error('二维码转存七牛云失败 ： {}'.format(e))
+        # 二维码上传到oss
+        CFile().upload_to_oss(filename, filedbname[1:], '商品二维码')
         return filedbname
 
     def product_score_award(self, product):

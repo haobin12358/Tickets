@@ -26,7 +26,6 @@ from tickets.extensions.register_ext import db, mini_wx_pay
 from tickets.extensions.success_response import Success
 from tickets.extensions.tasks import add_async_task, auto_cancle_order
 from tickets.extensions.weixin.pay import WeixinPayError
-from tickets.extensions.register_ext import qiniu_oss
 from tickets.models import User, Product, UserWallet, Commision, OrderPay, OrderMain, UserCommission, Supplizer, \
     ProductMonthSaleValue, UserDistribute, UserSubCommission, Approval
 

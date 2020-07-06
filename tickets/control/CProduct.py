@@ -11,12 +11,13 @@ from tickets.config.enums import UserStatus, ProductStatus, ShareType, RoleType,
 from tickets.config.http_config import API_HOST
 from tickets.control.BaseControl import BaseAdmin, BaseApproval
 from tickets.control.CActivation import CActivation
+from tickets.control.CFile import CFile
 from tickets.control.CUser import CUser
 from tickets.extensions.error_response import ParamsError, AuthorityError, StatusError
 from tickets.extensions.interface.user_interface import admin_required, is_admin, is_supplizer, phone_required, is_user, \
     token_required
 from tickets.extensions.params_validates import parameter_required, validate_arg, validate_price
-from tickets.extensions.register_ext import db, qiniu_oss
+from tickets.extensions.register_ext import db
 from tickets.extensions.success_response import Success
 from tickets.extensions.tasks import add_async_task, start_product, end_product, cancel_async_task
 from tickets.models import Supplizer, Product, User, Agreement, OrderMain, UserInvitation, SharingType, ProductVerifier, \
@@ -542,11 +543,9 @@ class CProduct(object):
         local_path, promotion_path = PlayPicture().create_ticket(
             product.PRimg, product.PRname, str(0), usid, prid, wxacode_path, product.PRlinePrice,
             product.PRtruePrice, starttime, endtime, starttime_g, endtime_g)
-        if current_app.config.get('IMG_TO_OSS'):
-            try:
-                qiniu_oss.save(local_path, filename=promotion_path[1:])
-            except Exception as e:
-                current_app.logger.info('上传七牛云失败，{}'.format(e.args))
+
+        CFile().upload_to_oss(local_path, promotion_path[1:], '商品推广图')
+
         scene = cuser.dict_to_query_str({'params': params_key})
         current_app.logger.info('get scene = {}'.format(scene))
         return Success(data={
