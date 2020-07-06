@@ -114,8 +114,10 @@ class CProduct(object):
         product.fill('prstatus_zh', ProductStatus(product.PRstatus).zh_value)
         product.fill('interrupt', False if product.PRstatus < ProductStatus.interrupt.value else True)  # 是否中止
         now = datetime.now()
+        role_type = 'productrole'
         countdown = None
         if product.PRtimeLimeted:
+            role_type = 'ticketrole'
             if product.PRstatus == ProductStatus.ready.value and product.PRissueStartTime > now:  # 距抢票开始倒计时
                 countdown = product.PRissueStartTime - now
             elif product.PRstatus == ProductStatus.active.value and product.PRissueEndTime > now:  # 距抢票结束倒计时
@@ -132,7 +134,7 @@ class CProduct(object):
         product.fill('countdown', countdown)
         product.fill('prstatus_zh', ProductStatus(product.PRstatus).zh_value)
         product.fill('interrupt', False if product.PRstatus < ProductStatus.interrupt.value else True)
-        product.fill('tirules', self._query_rules(RoleType.ticketrole.value))
+        product.fill('tirules', self._query_rules(getattr(RoleType, role_type).value))
         product.fill('scorerule', self._query_rules(RoleType.activationrole.value))
         apply_num = self._query_award_num(product)
         product.fill('apply_num', apply_num)  # 已申请人数
