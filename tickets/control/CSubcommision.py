@@ -58,7 +58,14 @@ class CSubcommision():
             else:
                 # 上级分销人员
                 supper_user = User.query.filter(User.USid == supper).first_("未找到用户")
-                level = supper_user.USsuperlevel
+                super_user_commision = UserSubCommission.query.filter(UserSubCommission.USid == supper).first()
+                level = super_user_commision.USCsuperlevel
+                if level == 0:
+                    self._level_zero_up_one(supper)
+                else:
+                    pass
+                super_user_commision = UserSubCommission.query.filter(UserSubCommission.USid == supper).first()
+                level = super_user_commision.USCsuperlevel
                 if level == 1:
                     user_sub_commision["USCsupper1"] = supper
                     # 一级分佣人员的上级分销者id
@@ -68,9 +75,11 @@ class CSubcommision():
                         pass
                     else:
                         # 循环寻找二级分佣人员
-                        while supper_user.USsuperlevel == 2 or not supper2:
+                        while super_user_commision.USCsuperlevel == 2 or not supper2:
                             supper_user = User.query.filter(User.USid == supper2).first()
-                            if supper_user.USsuperlevel == 2:
+                            super_user_commision = UserSubCommission.query.filter(
+                                UserSubCommission.USid == supper2).first()
+                            if super_user_commision.USCsuperlevel == 2:
                                 user_sub_commision["USCsupper2"] = supper2
                             supper2 = supper_user.USsupper1
 
@@ -80,9 +89,11 @@ class CSubcommision():
                         else:
                             supper3 = supper_user.USsupper1
                             # 循环寻找三级分佣人员
-                            while supper_user.USsuperlevel == 3 or not supper3:
+                            while super_user_commision.USCsuperlevel == 3 or not supper3:
                                 supper_user = User.query.filter(User.USid == supper3).first()
-                                if supper_user.USsuperlevel == 3:
+                                super_user_commision = UserSubCommission.query.filter(
+                                    UserSubCommission.USid == supper3).first()
+                                if super_user_commision.USCsuperlevel == 3:
                                     user_sub_commision["USCsupper3"] = supper3
                                 supper3 = supper_user.USsupper1
                 elif level == 2:
@@ -93,9 +104,11 @@ class CSubcommision():
                         pass
                     else:
                         # 循环寻找三级分佣人员
-                        while supper_user.USsuperlevel == 3 or not supper3:
+                        while super_user_commision.USCsuperlevel == 3 or not supper3:
                             supper_user = User.query.filter(User.USid == supper3).first()
-                            if supper_user.USsuperlevel == 3:
+                            super_user_commision = UserSubCommission.query.filter(
+                                    UserSubCommission.USid == supper3).first()
+                            if super_user_commision.USCsuperlevel == 3:
                                 user_sub_commision["USCsupper3"] = supper3
                             supper3 = supper_user.USsupper1
                 elif level == 3:
@@ -105,8 +118,6 @@ class CSubcommision():
                 sub_commision = UserSubCommission.create(user_sub_commision)
                 db.session.add(sub_commision)
                 db.session.flush()
-        if user_sub_commision["USCsupper1"]:
-            self._level_zero_up_one(user_sub_commision["USCsupper1"])
 
     @token_required
     def mock_distribute_user(self):
@@ -472,9 +483,9 @@ class CSubcommision():
                         commision = UserCommission.create({
                             "UCid": str(uuid.uuid1()),
                             "UCcommission": leveluptworeward,
-                            "USid": "0",
+                            "USid": usid,
                             "CommisionFor": 20,
-                            "FromUsid": None,
+                            "FromUsid": "0",
                             "UCstatus": 1,
                             "UCtype": 5,
                             "UCendTime": None,
@@ -483,6 +494,33 @@ class CSubcommision():
                             "OMid": None
                         })
                         db.session.add(commision)
+                        # TODO 钱包到账
+                        userwallet = UserWallet.query.filter(UserWallet.USid == usid,
+                                                             UserWallet.isdelete == 0,
+                                                             UserWallet.CommisionFor == 20)\
+                            .first()
+                        userwallet_dict = {
+                            "UWbalance": 0,
+                            "UWtotal": 0,
+                            "UWcash": 0
+                        }
+                        if userwallet:
+                            userwallet_dict["UWbalance"] = userwallet.UWbalance + leveluptworeward
+                            userwallet_dict["UWtotal"] = userwallet.UWtotal + leveluptworeward
+                            userwallet_dict["UWcash"] = userwallet.UWcash + leveluptworeward
+                            userwallet.update(userwallet_dict)
+                            db.session.flush()
+                        else:
+                            userwallet_dict["UWid"] = str(uuid.uuid1())
+                            userwallet_dict["USid"] = usid
+                            userwallet_dict["CommisionFor"] = 20
+                            userwallet_dict["UWbalance"] = leveluptworeward
+                            userwallet_dict["UWtotal"] = leveluptworeward
+                            userwallet_dict["UWcash"] = leveluptworeward
+                            userwallet_dict["UWexpect"] = 0
+                            userwallet_instance = UserWallet.create(userwallet_dict)
+                            db.session.add(userwallet_instance)
+                            db.session.flush()
                 elif user_super_level == 2:
                     # TODO 二级位置为usid的用户置空，三级位置设置为usid
                     user_commision_dict = {
@@ -510,9 +548,9 @@ class CSubcommision():
                         commision = UserCommission.create({
                             "UCid": str(uuid.uuid1()),
                             "UCcommission": Decimal(levelupthreereward, 2),
-                            "USid": "0",
+                            "USid": usid,
                             "CommisionFor": 20,
-                            "FromUsid": None,
+                            "FromUsid": "0",
                             "UCstatus": 1,
                             "UCtype": 5,
                             "UCendTime": None,
@@ -521,6 +559,33 @@ class CSubcommision():
                             "OMid": None
                         })
                         db.session.add(commision)
+                        # TODO 钱包到账
+                        userwallet = UserWallet.query.filter(UserWallet.USid == usid,
+                                                             UserWallet.isdelete == 0,
+                                                             UserWallet.CommisionFor == 20) \
+                            .first()
+                        userwallet_dict = {
+                            "UWbalance": 0,
+                            "UWtotal": 0,
+                            "UWcash": 0
+                        }
+                        if userwallet:
+                            userwallet_dict["UWbalance"] = userwallet.UWbalance + levelupthreereward
+                            userwallet_dict["UWtotal"] = userwallet.UWtotal + levelupthreereward
+                            userwallet_dict["UWcash"] = userwallet.UWcash + levelupthreereward
+                            userwallet.update(userwallet_dict)
+                            db.session.flush()
+                        else:
+                            userwallet_dict["UWid"] = str(uuid.uuid1())
+                            userwallet_dict["USid"] = usid
+                            userwallet_dict["CommisionFor"] = 20
+                            userwallet_dict["UWbalance"] = levelupthreereward
+                            userwallet_dict["UWtotal"] = levelupthreereward
+                            userwallet_dict["UWcash"] = levelupthreereward
+                            userwallet_dict["UWexpect"] = 0
+                            userwallet_instance = UserWallet.create(userwallet_dict)
+                            db.session.add(userwallet_instance)
+                            db.session.flush()
                 else:
                     pass
 
