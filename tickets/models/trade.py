@@ -32,9 +32,10 @@ class OrderMain(Base):
     OMintegralpayed = Column(Integer, default=0, comment='获得的活跃分')
     OMpayType = Column(Integer, default=2, comment='支付方式 2 直购 3 活跃分')
     # 上级
-    UPperid = Column(String(64), comment='上级id')  # 方便查询下级
-    UPperid2 = Column(String(64), comment='上上级id')
-    UPperid3 = Column(String(64), comment='上上上级id')
+    UPperid = Column(String(64), comment='一级分佣者')  # 方便查询下级
+    UPperid2 = Column(String(64), comment='二级分佣者')
+    UPperid3 = Column(String(64), comment='三级分佣者')
+    UPshareid = Column(String(64), comment='分享者id')
 
     # 商品信息
     # PRattribute = Column(Text, comment='商品属性 ["网络","颜色","存储"]')
