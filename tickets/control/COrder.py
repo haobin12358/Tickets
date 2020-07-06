@@ -23,7 +23,7 @@ from tickets.extensions.success_response import Success
 from tickets.extensions.tasks import add_async_task, auto_cancle_order
 from tickets.extensions.weixin.pay import WeixinPayError
 from tickets.models import User, Product, UserWallet, Commision, OrderPay, OrderMain, UserCommission, Supplizer, \
-    ProductMonthSaleValue
+    ProductMonthSaleValue, UserSubCommission
 
 
 class COrder():
@@ -144,9 +144,23 @@ class COrder():
                 "OPnum": 1,  # 目前没有添加数量
             }
             if ompaytype == PayType.cash.value:
-                omdict.setdefault('UPperid', user.USopenid1)
-                omdict.setdefault('UPperid2', user.USopenid2)
-                omdict.setdefault('UPperid3', user.USopenid3)
+                user_subcommision = UserSubCommission.query.filter(UserSubCommission.USid == user.USid,
+                                                                   UserSubCommission.isdelete == 0)\
+                    .first()
+                user_super_level = user_subcommision.USCsuperlevel
+                if user_super_level == 3:
+                    pass
+                elif user_super_level == 2:
+                    omdict.setdefault('UPperid3', user_subcommision.USCsupper3)
+                elif user_super_level == 1:
+                    omdict.setdefault('UPperid2', user_subcommision.USCsupper2)
+                    omdict.setdefault('UPperid3', user_subcommision.USCsupper3)
+                else:
+                    omdict.setdefault('UPperid', user_subcommision.USCsupper1)
+                    omdict.setdefault('UPperid2', user_subcommision.USCsupper2)
+                    omdict.setdefault('UPperid3', user_subcommision.USCsupper3)
+            if data.get('shareid'):
+                omdict.setdefault('UPshareid', data.get('shareid'))
                 # 极差分佣暂时不需要
                 # omdict.setdefault('USCommission1', user.USCommission1)
                 # omdict.setdefault('USCommission2', user.USCommission2)
@@ -521,51 +535,52 @@ class COrder():
             current_app.logger.error('=== 佣金分配尚未配置，分佣失败 ===')
             return
 
+        # 订单
         om = OrderMain.query.filter(OrderMain.isdelete == false(), OrderMain.OPayno == pp.OPayno).first()
         if not om:
             current_app.logger.error("===订单不存在，分佣失败 OPayno = {}===".format(pp.OPayno))
             return
         # user = self._current_user()
+        # 付款人员
         user = User.query.filter(User.USid == om.USid, User.isdelete == false()).first()
 
         if not user:
             current_app.logger.error("===用户不存在，分佣失败 omid = {} USid = {}===".format(om.OMid, om.USid))
             return
 
-        up1, up2, up3 = om.UPperid, om.UPperid2, om.UPperid3
-        # 如果付款用户有下级则自己分一部分佣金
-        sub = User.query.filter(User.isdelete == false(), User.USsupper1 == user.USid).first()
-        if sub:
-            up1, up2, up3 = user.USid, up1, up2  # 代理商自己也会有一部分佣金
-        up1_user = User.query.filter(User.isdelete == False, User.USid == up1).first()
-        up2_user = User.query.filter(User.isdelete == False, User.USid == up2).first()
-        up3_user = User.query.filter(User.isdelete == False, User.USid == up3).first()
+        # 涉及到获取佣金的人员
+        up1, up2, up3, share = om.UPperid, om.UPperid2, om.UPperid3, om.UPshareid
+        # 供应商收入
+        product = Product.query.filter(Product.PRid == om.PRid).first()
+        purchaseprice = product.PurchasePrice or 0
+        # 剩余利润
+        profit = om.OMtrueMount - purchaseprice
+        # 收入参数
         level1commision, level2commision, level3commision, planetcommision, deviderate = json.loads(
             commision.Levelcommision
         )
-        # 平台让利比
-        # deviderate = Decimal(commision.DevideRate) / 100 if commision.DevideRate else 0
+        user_level1commision = Decimal(str(level1commision)) / 100       # 一级抽成
+        user_level2commision = Decimal(str(level2commision)) / 100       # 二级抽成
+        user_level3commision = Decimal(str(level3commision)) / 100       # 三级抽成
+        planet_rate = Decimal(str(planetcommision)) / 100                # 平台抽成比例
 
-        user_level1commision = Decimal(str(level1commision)) / 100
-        user_level2commision = Decimal(str(level2commision)) / 100
-        user_level3commision = Decimal(str(level3commision)) / 100
-        planet_rate = Decimal(str(planetcommision)) / 100  # 平台抽成比例
+        user_level1commision_profit = profit * user_level1commision
+        user_level2commision_profit = profit * user_level2commision
+        user_level3commision_profit = profit * user_level3commision
 
-        mountprice = Decimal(str(om.OMtrueMount))  # 根据支付实价分佣
-        deviderprice = mountprice * deviderate  # 商品供应商佣金
-        planet_commision = mountprice * planet_rate
-        user_commision = mountprice - deviderprice - planet_commision  # 用户获得, 是总价- 供应商佣金 - 平台获得
-        # 供应商佣金记录
+        up1_user = User.query.filter(User.isdelete == False, User.USid == up1).first()
+        up2_user = User.query.filter(User.isdelete == False, User.USid == up2).first()
+        up3_user = User.query.filter(User.isdelete == False, User.USid == up3).first()
 
+        # 供应商佣金收入
         supplizer = Supplizer.query.filter(Supplizer.SUid == om.PRcreateId, Supplizer.isdelete == false()).first()
-
         commisionfor = ApplyFrom.supplizer.value if supplizer else ApplyFrom.platform.value
         suid = supplizer.SUid if supplizer else 0
         commision_account = UserCommission.create({
             'UCid': str(uuid.uuid1()),
             'OMid': om.OMid,
             'CommisionFor': commisionfor,
-            'UCcommission': self._get_two_float(deviderprice),
+            'UCcommission': self._get_two_float(purchaseprice),
             'USid': suid,
             'PRname': om.PRname,
             'PRimg': om.PRimg,
@@ -574,14 +589,20 @@ class COrder():
         })
         db.session.add(commision_account)
 
+        # 平台佣金
+        platform_profit = profit
+        share_profit = 0
         if up1_user:
-            up1_base = self._get_two_float(user_commision * user_level1commision)
-            user_commision -= up1_base
-            current_app.logger.info('一级获得佣金: {}'.format(up1_base))
+            if share:
+                share_profit = share_profit + self._get_two_float(0.5 * user_level1commision_profit)
+                user_level1commision_profit = self._get_two_float(0.5 * user_level1commision_profit)
+            else:
+                share_profit = share_profit
+                user_level1commision_profit = self._get_two_float(user_level1commision_profit)
             commision_account = UserCommission.create({
                 'UCid': str(uuid.uuid1()),
                 'OMid': om.OMid,
-                'UCcommission': up1_base,
+                'UCcommission': user_level1commision_profit,
                 'USid': up1_user.USid,
                 'PRname': om.PRname,
                 'PRimg': om.PRimg,
@@ -589,14 +610,18 @@ class COrder():
                 'FromUsid': user.USid
             })
             db.session.add(commision_account)
+            platform_profit = platform_profit - user_level1commision_profit - share_profit
         if up2_user:
-            up2_base = self._get_two_float(user_commision * user_level2commision)
-            user_commision -= up2_base
-            current_app.logger.info('二级获得佣金: {}'.format(up2_base))
+            if share:
+                share_profit = share_profit + self._get_two_float(0.5 * user_level2commision_profit)
+                user_level2commision_profit = self._get_two_float(0.5 * user_level2commision_profit)
+            else:
+                share_profit = share_profit
+                user_level2commision_profit = self._get_two_float(user_level2commision_profit)
             commision_account = UserCommission.create({
                 'UCid': str(uuid.uuid1()),
                 'OMid': om.OMid,
-                'UCcommission': up2_base,
+                'UCcommission': user_level2commision_profit,
                 'USid': up2_user.USid,
                 'PRname': om.PRname,
                 'PRimg': om.PRimg,
@@ -604,14 +629,18 @@ class COrder():
                 'FromUsid': user.USid
             })
             db.session.add(commision_account)
+            platform_profit = platform_profit - user_level2commision_profit - share_profit
         if up3_user:
-            up3_base = self._get_two_float(user_commision * user_level3commision)
-            user_commision -= up3_base
-            current_app.logger.info('三级获得佣金: {}'.format(up3_base))
+            if share:
+                share_profit = share_profit + self._get_two_float(0.5 * user_level3commision_profit)
+                user_level3commision_profit = self._get_two_float(0.5 * user_level3commision_profit)
+            else:
+                share_profit = share_profit
+                user_level3commision_profit = self._get_two_float(user_level3commision_profit)
             commision_account = UserCommission.create({
                 'UCid': str(uuid.uuid1()),
                 'OMid': om.OMid,
-                'UCcommission': up3_base,
+                'UCcommission': user_level3commision_profit,
                 'USid': up3_user.USid,
                 'PRname': om.PRname,
                 'PRimg': om.PRimg,
@@ -619,12 +648,26 @@ class COrder():
                 'FromUsid': user.USid
             })
             db.session.add(commision_account)
-        planet_remain = user_commision + planet_commision
+            platform_profit = platform_profit - user_level3commision_profit - share_profit
+
+        if share_profit:
+            commision_account = UserCommission.create({
+                'UCid': str(uuid.uuid1()),
+                'OMid': om.OMid,
+                'UCcommission': share_profit,
+                'USid': share,
+                'PRname': om.PRname,
+                'PRimg': om.PRimg,
+                'UCstatus': UserCommissionStatus.in_account.value,  # 佣金实时到账
+                'FromUsid': user.USid
+            })
+            db.session.add(commision_account)
+
         # 平台剩余佣金
         commision_account = UserCommission.create({
             'UCid': str(uuid.uuid1()),
             'OMid': om.OMid,
-            'UCcommission': planet_remain,
+            'UCcommission': platform_profit,
             'USid': '0',
             'CommisionFor': ApplyFrom.platform.value,
             'PRname': om.PRname,
@@ -633,9 +676,6 @@ class COrder():
             'FromUsid': user.USid
         })
         db.session.add(commision_account)
-        current_app.logger.info('平台获取: {}'.format(planet_remain))
-
-        # order_part.OPid
 
         # 佣金到账
         user_commisions = UserCommission.query.filter(
