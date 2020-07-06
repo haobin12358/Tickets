@@ -122,3 +122,8 @@ class NeedPhone(BaseError):
     status = 405
     status_code = 405014
     message = '为获得更优质的服务，请允许授权您的手机号码'
+
+class LevelStatus(BaseError):
+    status = 405
+    status_code = 405015
+    message = '等级调整不符合规则'

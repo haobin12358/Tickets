@@ -20,6 +20,8 @@ class ASubcommision(Resource):
     def post(self, subcommision):
         apis = {
             "mock_distribute_user": self.csubcommision.mock_distribute_user,
+            "set_user_level": self.csubcommision.set_user_level,
+            "mock_approval": self.csubcommision.mock_approval
 
         }
         return apis

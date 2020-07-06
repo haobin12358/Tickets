@@ -32,6 +32,17 @@ class CCommision:
             if comm <= 0 or comm > 100:
                 raise ParamsError('佣金比不合适 需小于100, 大于0')
         # todo 其他参数校验，目前用不到，忽略校验
+        leveluptwo = data.get('leveluptwo', 10)
+        levelupthree = data.get('levelupthree', 10)
+        leveldowntwo = data.get('leveldowntwo', 10)
+        leveldownone = data.get('leveldownone', 10)
+        leveldownzero = data.get('leveldownzero', 1)
+        leveldowntworep = data.get('leveldowntworep', 10)
+        leveldownonerep = data.get('leveldownonerep', 10)
+        leveldownzerorep = data.get('leveldownzerorep', 2)
+        leveluptworeward = data.get('leveluptworeward', 5)
+        levelupthreereward = data.get('levelupthreereward', 100)
+        checktime = data.get('checktime', 7)
 
         with db.auto_commit():
             commision = Commision.query.filter(
@@ -51,6 +62,17 @@ class CCommision:
                 'ReduceRatio': json.dumps(reduceratio, cls=JSONEncoder),
                 'IncreaseRatio': json.dumps(increaseratio, cls=JSONEncoder),
                 'DevideRate': deviderate,
+                'LevelUpTwo': leveluptwo,
+                'LevelUpThree': levelupthree,
+                'LevelDownTwo': leveldowntwo,
+                'LevelDownOne': leveldownone,
+                'LevelDownZero': leveldownzero,
+                'LevelDownTwoRep': leveldowntworep,
+                'LevelDownOneRep': leveldownonerep,
+                'LevelDownZeroRep': leveldownzerorep,
+                'LevelUpTwoReward': leveluptworeward,
+                'LevelUpThreeReward': levelupthreereward,
+                'CheckTime': checktime
             }
             [setattr(commision, k, v) for k, v in commission_dict.items() if v is not None and v != '[]']
             # if not commision.InviteNum and not commision.PesonalSale and not commision.GroupSale:

@@ -38,6 +38,10 @@ class CUser(object):
     base_approval = BaseApproval()
     c_file = CFile()
 
+    def __init__(self):
+        from tickets.control.CSubcommision import CSubcommision
+        self.subcommision = CSubcommision
+
     @staticmethod
     def _decrypt_encrypted_user_data(encrypteddata, session_key, iv):
         """小程序信息解密"""
@@ -139,6 +143,8 @@ class CUser(object):
                     user_dict.setdefault('USsupper2', upperd.USsupper1)
                     user_dict.setdefault('USsupper3', upperd.USsupper2)
                 user = User.create(user_dict)
+                # 创建分佣表，更新一级分佣者状态
+                self.subcommision._mock_first_login(usid)
             db.session.add(user)
             db.session.flush()
             if upperd:
@@ -454,6 +460,8 @@ class CUser(object):
             transactions, total = self._get_withdraw(user, year, month)
         elif option == 'commission':  # 佣金收入
             transactions, total = self._get_commission(user, year, month)
+        elif option == 'reward':
+            transactions, total = self._get_reward(user, year, month)
         else:
             raise ParamsError('type 参数错误')
         user_wallet = UserWallet.query.filter(UserWallet.isdelete == false(), UserWallet.USid == user.USid).first()
@@ -516,12 +524,36 @@ class CUser(object):
         return withdraw, total
 
     @staticmethod
+    def _get_reward(user, year, month):
+        res = db.session.query(UserCommission.PRname, UserCommission.createtime,
+                               UserCommission.UCcommission, UserCommission.UCstatus
+                               ).filter(UserCommission.isdelete == false(),
+                                        UserCommission.USid == user.USid,
+                                        UserCommission.UCstatus > UserCommissionStatus.preview.value,
+                                        UserCommission.UCtype == 5,
+                                        extract('month', UserCommission.createtime) == month,
+                                        extract('year', UserCommission.createtime) == year
+                                        ).order_by(UserCommission.createtime.desc(),
+                                                   origin=True).all_with_page()
+        commission = [{'title': "[奖励金]" + i[0],
+                       'time': i[1],
+                       'amount': i[2]
+                       }
+                      for i in res if i[0] is not None]
+        total = sum(i.get('amount', 0) for i in commission)
+        for item in commission:
+            item['amount'] = ' + ¥{}'.format(item['amount'])
+        total = ' ¥{}'.format(total)
+        return commission, total
+
+    @staticmethod
     def _get_commission(user, year, month):
         res = db.session.query(UserCommission.PRname, UserCommission.createtime,
                                UserCommission.UCcommission, UserCommission.UCstatus
                                ).filter(UserCommission.isdelete == false(),
                                         UserCommission.USid == user.USid,
                                         UserCommission.UCstatus > UserCommissionStatus.preview.value,
+                                        UserCommission.UCtype == 0,
                                         extract('month', UserCommission.createtime) == month,
                                         extract('year', UserCommission.createtime) == year
                                         ).order_by(UserCommission.createtime.desc(),
@@ -826,6 +858,9 @@ class CUser(object):
             user.fields = ['USid', 'USname', 'USheader', 'USCommission1',
                            'USCommission2', 'USCommission3', 'USlevel']
             usid = user.USid
+            user_subcommision = UserSubCommission.query.filter(UserSubCommission.USid == usid,
+                                                               UserSubCommission.isdelete == 0).first()
+            user.fill('uscsuperlevel', user_subcommision.USCsuperlevel)
             user.fill('ustelphone', user.UStelephone)
             wallet = UserWallet.query.filter(
                 UserWallet.isdelete == False,
