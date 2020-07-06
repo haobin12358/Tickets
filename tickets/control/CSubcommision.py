@@ -369,7 +369,8 @@ class CSubcommision():
             if data.get("avstatus") == 'all':
                 pass
             else:
-                avstatus = ApplyStatus(data.get('avstatus')).value
+                data_avstatus = getattr(ApplyStatus, data.get('avstatus'), None)
+                avstatus = data_avstatus.value
                 filter_args.append(Approval.AVstatus == avstatus)
             approval_list = Approval.query.filter(*filter_args) \
                 .all_with_page()
@@ -394,7 +395,7 @@ class CSubcommision():
                                                             UserSubCommission.USCsupper2 == getattr(request, 'user').id,
                                                             UserSubCommission.USCsuperlevel == 2).all()
             approval.fill("team_number", len(super_team))
-            user_supper3_id = UserSubCommission.USCsupper3
+            user_supper3_id = usersubcommision.USCsupper3
             user_supper3 = User.query.filter(User.USid == user_supper3_id, User.isdelete == 0).first()
             approval.fill("user_supper3_name", user_supper3.USname)
             approval.fill("user_supper3_telphone", user_supper3.UStelephone)
@@ -467,7 +468,7 @@ class CSubcommision():
                     if leveluptworeward:
                         commision = UserCommission.create({
                             "UCid": str(uuid.uuid1()),
-                            "UCcommission": Decimal(leveluptworeward, 2),
+                            "UCcommission": leveluptworeward,
                             "USid": "0",
                             "CommisionFor": 20,
                             "FromUsid": None,
@@ -478,7 +479,7 @@ class CSubcommision():
                             "PRimg": None,
                             "OMid": None
                         })
-                        db.session.create(commision)
+                        db.session.add(commision)
                 elif user_super_level == 2:
                     # TODO 二级位置为usid的用户置空，三级位置设置为usid
                     user_commision_dict = {
@@ -516,7 +517,7 @@ class CSubcommision():
                             "PRimg": None,
                             "OMid": None
                         })
-                        db.session.create(commision)
+                        db.session.add(commision)
                 else:
                     pass
 
@@ -864,7 +865,7 @@ class CSubcommision():
             else:
                 approval_dict["AVcontent"] = None
             approval_dict["PTid"] = "touplevel"
-            user_sub_commission_instance = UserSubCommission.create(approval_dict)
+            user_sub_commission_instance = Approval.create(approval_dict)
             db.session.add(user_sub_commission_instance)
             db.session.flush()
 
