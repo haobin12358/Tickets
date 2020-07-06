@@ -934,7 +934,8 @@ class CUser(object):
         if admin:
             if check_password_hash(admin.ADpassword, pwd_old):
                 self.__check_password(pwd_new)
-                admin.ADpassword = generate_password_hash(pwd_new)
+                with db.auto_commit():
+                    admin.ADpassword = generate_password_hash(pwd_new)
                 # BASEADMIN().create_action(AdminActionS.update.value, 'none', 'none')
                 return Success('更新密码成功')
             current_app.logger.info('{0} update pwd failed'.format(admin.ADname))
