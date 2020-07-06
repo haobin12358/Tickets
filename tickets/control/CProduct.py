@@ -157,9 +157,9 @@ class CProduct(object):
 
         # show_record = True if product.PRstatus == ProductStatus.over.value else False
         # product.fill('show_record', show_record)  # 0618 fix 目前无需"动态"区域出现
-        verified = True if is_user() and User.query.filter(User.isdelete == false(),
-                                                           User.USid == getattr(request, 'user').id
-                                                           ).first().USidentification else False
+        current_user = User.query.filter(User.isdelete == false(),
+                                         User.USid == getattr(request, 'user').id).first() if is_user() else None
+        verified = True if current_user and getattr(current_user, 'USidentification') else False
         product.fill('verified', verified)  # 是否已信用认证
         product.fill('position', {'tiaddress': product.address,
                                   'longitude': product.longitude,

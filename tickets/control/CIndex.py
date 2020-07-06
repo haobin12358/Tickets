@@ -13,7 +13,7 @@ from tickets.models.index import MiniProgramBanner, LinkContent
 
 
 class CIndex:
-    LCBASE = '/pages/personal/richText?lcid=={}'
+    LCBASE = '/pages/personal/richText?lcid={}'
 
     def list_mp_banner(self):
         """小程序轮播图获取"""

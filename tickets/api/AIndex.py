@@ -10,6 +10,7 @@ class AIndex(Resource):
         apis = {
             'list_mp_banner': self.index.list_mp_banner,
             'list_linkcontent': self.index.list_linkcontent,
+            'get_linkcontent': self.index.get_linkcontent,
         }
         return apis
 
