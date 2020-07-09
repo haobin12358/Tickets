@@ -3,6 +3,7 @@ import uuid
 from decimal import Decimal
 
 from flask import current_app, request
+from sqlalchemy import func, false
 
 from tickets.config.enums import ApplyStatus, ApprovalAction, AdminActionS, ApplyFrom, WXLoginFrom, CashFor, \
     ProductStatus
@@ -111,14 +112,22 @@ class CApproval(BaseApproval):
             ap.hide('AVcontentdetail', 'AVstartdetail')
             content = ap.AVcontentdetail or 'null'
             content = json.loads(content)
-            start = ap.AVstartdetail or 'null'
+            if content.get('prid') and content.get('suname'):
+                pr_nums = db.session.query(func.count(Product.PRid)
+                                           ).filter(Product.isdelete == false(),
+                                                    Product.PRstatus.in_((ProductStatus.ready.value,
+                                                                          ProductStatus.active.value)),
+                                                    Product.SUid == content.get('suid'),
+                                                    ).scalar() or 0  # 当前已上架的商品数
+                content['suname'] = f'{content.get("suname")} » 现有{pr_nums}件商品上架'
+                start = ap.AVstartdetail or 'null'
 
-            ap.fill('content', content)
-            ap.fill('start', json.loads(start))
-            ap.add('createtime')
-            ap.fill('avstatus_en', ApplyStatus(ap.AVstatus).name)
-            ap.fill('avstatus_zh', ApplyStatus(ap.AVstatus).zh_value)
-            res.append(ap)
+                ap.fill('content', content)
+                ap.fill('start', json.loads(start))
+                ap.add('createtime')
+                ap.fill('avstatus_en', ApplyStatus(ap.AVstatus).name)
+                ap.fill('avstatus_zh', ApplyStatus(ap.AVstatus).zh_value)
+                res.append(ap)
 
         return Success('获取待审批列表成功', data=res)
 

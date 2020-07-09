@@ -563,7 +563,7 @@ class CUser(object):
                                         extract('year', UserCommission.createtime) == year
                                         ).order_by(UserCommission.createtime.desc(),
                                                    origin=True).all_with_page()
-        commission = [{'title': UserCommissionStatus(i[3]).zh_value + i[0],
+        commission = [{'title': f'[{UserCommissionStatus(i[3]).zh_value}] {i[0]}',
                        'time': i[1],
                        'amount': i[2]
                        }

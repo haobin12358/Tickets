@@ -35,7 +35,8 @@ class CProduct(object):
         args = request.args.to_dict()
         filter_args = []
         if not (is_admin() or is_supplizer()):
-            filter_args.append(Product.PRstatus != ProductStatus.interrupt.value)
+            filter_args.append(Product.PRstatus.notin_((ProductStatus.interrupt.value, ProductStatus.reject.value,
+                                                        ProductStatus.pending.value)))
         if is_supplizer():
             filter_args.append(Product.SUid == getattr(request, 'user').id)
         prlimited = args.get('prtimelimeted')
