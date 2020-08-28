@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import requests
 from flask import current_app, request
-from sqlalchemy import false, cast, Date, and_, or_, func, extract
+from sqlalchemy import false, cast, Date, and_, or_, func, extract, distinct
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from tickets.common.default_head import GithubAvatarGenerator
@@ -857,7 +857,11 @@ class CUser(object):
         if name:
             user_query = user_query.filter(User.USname.contains(name.strip()))
 
-        users = user_query.order_by(User.createtime.desc()).all_with_page()
+        # users = user_query.order_by(User.createtime.desc()).all_with_page()
+        # 排除审核机器人
+        users = user_query.join(UserLoginTime, UserLoginTime.USid == User.USid
+                                ).filter(UserLoginTime.NetType.isnot(None)
+                                         ).order_by(User.createtime.desc()).all_with_page()
         for user in users:
             # 佣金
             user.fields = ['USid', 'USname', 'USheader', 'USCommission1',
@@ -1212,15 +1216,21 @@ class CUser(object):
         # user_count = db.session.query(*[func.count(cast(User.createtime, Date) <= day) for day in days]
         #                               ).filter(User.isdelete == False).all()
         for day in days:
-            ucount = User.query.filter(User.isdelete == false(),
-                                       cast(User.createtime, Date) <= day).count()
+            ucount = db.session.query(func.count(distinct(User.USid))
+                                      ).join(UserLoginTime, UserLoginTime.USid == User.USid
+                                             ).filter(User.isdelete == false(),
+                                                      cast(User.createtime, Date) <= day,
+                                                      UserLoginTime.USid == User.USid,
+                                                      UserLoginTime.NetType.isnot(None)).scalar()
             user_count.append(ucount)
             ipcount = db.session.query(UserAccessApi.USTip).filter(UserAccessApi.isdelete == false(),
-                                                                   cast(UserAccessApi.createtime, Date) == day
+                                                                   cast(UserAccessApi.createtime, Date) == day,
+                                                                   UserAccessApi.NetType.isnot(None),
                                                                    ).group_by(UserAccessApi.USTip).count()
             ip_count.append(ipcount)
             uvcount = db.session.query(UserAccessApi.USid).filter(UserAccessApi.isdelete == false(),
-                                                                  cast(UserAccessApi.createtime, Date) == day
+                                                                  cast(UserAccessApi.createtime, Date) == day,
+                                                                  UserAccessApi.NetType.isnot(None),
                                                                   ).group_by(UserAccessApi.USid).count()
             uv_count.append(uvcount)
 
