@@ -27,7 +27,7 @@ MarkupSafe==1.1.1
 numpy==1.18.5
 opencv-python==4.2.0.34
 oss2==2.12.1
-Pillow==7.1.2
+Pillow==8.2.0
 pycrypto==2.6.1
 pycryptodome==3.9.8
 pycryptodomex==3.6.6
